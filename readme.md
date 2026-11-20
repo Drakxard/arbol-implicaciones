@@ -1,3 +1,59 @@
+# Árbol de Implicaciones · Mind Elixir + Groq
+
+[![CI](https://github.com/Drakxard/arbol-implicaciones/actions/workflows/ci.yml/badge.svg)](https://github.com/Drakxard/arbol-implicaciones/actions/workflows/ci.yml)
+
+Adaptación del repositorio original [Mind Elixir Core](https://github.com/SSShooter/mind-elixir-core), conservando su motor y pruebas. Agrega una página en español, guardado local, importación/exportación JSON, exportación PNG y un panel de estudio con Groq. La licencia original MIT se conserva en `LICENSE`.
+
+## Usarlo localmente
+
+Requiere Node.js 22.12 o superior y npm. En PowerShell, si la política bloquea `npm.ps1`, usá `npm.cmd` en lugar de `npm`.
+
+```sh
+npm ci
+npm run dev:app
+```
+
+Abrí la dirección que imprime Vite. La edición manual funciona sin claves. Para probar Groq localmente, copiá `.env.example` a `.env.local` y completá `GROQ_API_KEY`. El servidor local incluye la misma ruta `/api/ai` que Vercel.
+
+## Desplegar en Vercel
+
+1. Importá `Drakxard/arbol-implicaciones` desde GitHub, usando la raíz del repositorio.
+2. Agregá **`GROQ_API_KEY`** como variable de entorno del servidor. No uses el prefijo `VITE_` ni incluyas la clave en GitHub.
+3. Opcionalmente configurá `GROQ_MODEL`; el predeterminado es `openai/gpt-oss-20b`. Debe aceptar JSON Schema estricto en Groq.
+4. Desplegá. `vercel.json` ya configura `npm ci`, `npm run build`, salida `dist` y la función `/api/ai`.
+
+No hay contraseña, cuentas ni contador diario propio. Los límites de Groq y de Vercel siguen aplicando; la clave del servidor atiende las solicitudes de quienes abran la web. Si Groq falla o no hay clave, la edición manual permanece disponible. Las propuestas se revisan antes de aplicarse y se pueden deshacer.
+
+## Uso y datos
+
+- Doble clic para editar, Tab para agregar un hijo, Enter para un hermano y arrastrar para reorganizar.
+- Clic derecho para conectar conceptos y crear resúmenes. Las flechas pueden llevar etiquetas como “implica” o “requiere”; no verifican automáticamente la validez lógica.
+- Seleccioná un concepto para escribir su nota. Se guarda al salir del campo y puede deshacerse.
+- Ctrl/Cmd + Z para deshacer y Ctrl/Cmd + Shift + Z para rehacer, también después de aplicar IA, importar o empezar un mapa nuevo.
+- Se guarda **un mapa activo en este navegador**. Exportá JSON para conservar varios mapas o trasladarlos a otro equipo; importar reemplaza el activo y permite deshacer. El archivo incluye notas y relaciones. PNG es una copia visual.
+- Groq puede generar un mapa, ampliar un concepto, explicarlo, proponer ejemplos y crear preguntas como nodos editables. Se envían únicamente el texto solicitado y el concepto seleccionado con su nota.
+- El motor está en `src/` sin modificaciones; la adaptación está en `app/`, y la única función del servidor es `api/ai.ts`.
+
+## Pruebas
+
+```sh
+npm run typecheck:app
+npm run test:api
+npm run build
+npx playwright install chromium
+npm run test:app
+# Pruebas y compilación originales de la biblioteca:
+npm run build:core
+npm run type-test
+npm run test:core
+```
+
+GitHub Actions ejecuta dos trabajos: aplicación/API y las 243 pruebas originales de Mind Elixir. `test:core` ejecuta todas sus comprobaciones funcionales y omite comparaciones de píxeles: el repositorio original solo trae referencias para Windows y macOS, que además dependen de la versión del navegador. `npm test` conserva el comando original con esas comparaciones. El helper de doble clic se adaptó para esperar la estabilidad del lienzo.
+
+Las pruebas de Groq usan respuestas simuladas, sin claves ni consumo de API. Los informes de navegador se adjuntan cuando hay fallos. Se usa npm con `package-lock.json`; el lockfile de pnpm se conserva como referencia del repositorio original.
+
+## Documentación original de Mind Elixir Core
+
 <p align="center">
   <a href="https://docs.mind-elixir.com" target="_blank" rel="noopener noreferrer">
     <img width="150" src="https://raw.githubusercontent.com/ssshooter/mind-elixir-core/master/images/logo2.png" alt="mindelixir logo2">

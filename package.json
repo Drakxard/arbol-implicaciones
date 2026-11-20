@@ -2,6 +2,7 @@
   "name": "mind-elixir",
   "version": "6.0.3",
   "type": "module",
+  "private": true,
   "description": "Mind elixir is a free open source mind map core.",
   "keywords": [
     "mind-elixir",
@@ -13,7 +14,13 @@
     "lint": "biome check --write --error-on-warnings src",
     "format": "biome format --write src",
     "dev": "vite",
-    "build": "node scripts/build.js && tsc",
+    "build": "vite build --config vite.app.config.ts",
+    "build:core": "node scripts/build.js && tsc",
+    "dev:app": "vite --config vite.app.config.ts --host 127.0.0.1",
+    "typecheck:app": "tsc -p tsconfig.app.json",
+    "test:api": "node --import tsx --test app-tests/*.test.ts",
+    "test:app": "playwright test --config playwright.app.config.ts",
+    "test:core": "playwright test --ignore-snapshots",
     "tsc": "tsc",
     "type-test": "tsc -p tsconfig.type-test.json",
     "preview": "vite preview",
@@ -25,7 +32,7 @@
     "doc": "api-extractor run --local --verbose",
     "doc:md": "api-documenter markdown --input-folder ./api --output-folder ./md",
     "gen:members": "node scripts/gen-members.js",
-    "beta": "npm run build && npm publish --tag beta"
+    "beta": "npm run build:core && npm publish --tag beta"
   },
   "exports": {
     ".": {
@@ -95,6 +102,7 @@
     "nyc": "^17.1.0",
     "rimraf": "^6.0.1",
     "simple-markdown-to-html": "^1.0.0",
+    "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "typescript-5": "npm:typescript@^5.9.3",
     "vite": "^8.2.0",

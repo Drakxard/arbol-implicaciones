@@ -5,9 +5,15 @@ doc
 .workbuddy
 .nyc_output
 coverage
-api
+api/*
+!api/ai.ts
+!api/tsconfig.json
 # local env files
 .env.local
+.env
+.env.*
+!.env.example
+.vercel/
 .env.*.local
 
 # Log files
@@ -26,6 +32,7 @@ yarn-error.log*
 
 .eslintcache
 /test-results/
+/test-results-app/
 /playwright-report/
 /blob-report/
 /playwright/.cache/

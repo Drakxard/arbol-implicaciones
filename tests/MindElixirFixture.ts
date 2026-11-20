@@ -72,10 +72,10 @@ export class MindElixirFixture {
     return data
   }
   async dblclick(topic: string) {
-    const element = this.page.getByText(topic, { exact: true })
-    // Simulate double click by clicking twice within 300ms
-    await element.click({ force: true })
-    await element.click({ force: true })
+    const element = this.page.getByText(topic, { exact: true }).locator('xpath=..')
+    // A real double click waits for layout stability; two force clicks can
+    // miss the second target while the canvas is panning on slower runners.
+    await element.dblclick()
   }
   async click(topic: string) {
     // `scrollIntoView` pans the canvas with a 0.3s transition. A force click

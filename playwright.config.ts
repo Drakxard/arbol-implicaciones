@@ -71,7 +71,7 @@ export default defineConfig({
 
   /* Run your local dev server before starting the tests */
   webServer: {
-    command: 'pnpm dev --port 23334',
+    command: 'npm run dev -- --port 23334',
     port: 23334,
     reuseExistingServer: true,
     env: {
