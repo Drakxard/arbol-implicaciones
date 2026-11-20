@@ -50,7 +50,7 @@ npm run test:core
 
 GitHub Actions ejecuta dos trabajos: aplicación/API y las 243 pruebas originales de Mind Elixir. `test:core` ejecuta todas sus comprobaciones funcionales y omite comparaciones de píxeles: el repositorio original solo trae referencias para Windows y macOS, que además dependen de la versión del navegador. `npm test` conserva el comando original con esas comparaciones. El helper de doble clic se adaptó para esperar la estabilidad del lienzo.
 
-Las pruebas de Groq usan respuestas simuladas, sin claves ni consumo de API. Los informes de navegador se adjuntan cuando hay fallos. Se usa npm con `package-lock.json`; el lockfile de pnpm se conserva como referencia del repositorio original.
+Las pruebas de Groq usan respuestas simuladas, sin claves ni consumo de API. Los informes de navegador se adjuntan cuando hay fallos. Se usa exclusivamente npm con `package-lock.json`. No se conserva la configuración de pnpm del repositorio original para evitar que Vercel seleccione otro gestor al preparar las funciones.
 
 ## Documentación original de Mind Elixir Core
 
