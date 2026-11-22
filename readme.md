@@ -68,6 +68,8 @@ El zoom admite valores desde 5% hasta 500%, mediante los controles del mapa y la
 
 **Crear nuevo** despliega **Carpeta** y **Mapa**. Las carpetas son subcarpetas reales del directorio elegido y pueden anidarse. Los mapas nuevos y sus cambios se guardan en la carpeta que estás viendo. Usá la ruta superior para volver a una carpeta anterior o a **Todas las carpetas**.
 
+Solo se muestran carpetas identificadas desde la interfaz mediante un archivo `.arbol-folder.json`; las demás carpetas del directorio no aparecen. Para agregar una carpeta existente, incluso una creada con una versión anterior, elegí **Crear nuevo → Carpeta** y escribí su nombre: se identifica sin modificar los archivos que contiene. Abrir o cerrar el panel de propiedades conserva el desplazamiento y zoom del lienzo.
+
 Arrastrá un mapa sobre una carpeta, sobre la ruta superior o sobre **Biblioteca** para moverlo. Los tres puntos de cada mapa también incluyen **Mover a** y **Copiar a**: aparece una barra inferior que permite recorrer carpetas y confirmar con **Mover aquí** o **Copiar aquí**, o cancelar. Durante esa selección podés crear carpetas. Mover nunca reemplaza un mapa existente; copiar genera nombres como `Original (copia)` cuando hace falta y asigna identificadores nuevos al documento y sus relaciones.
 
 La papelera reúne los mapas de todas las carpetas y muestra su ubicación de origen. Un clic restaura el mapa en esa carpeta. El clic derecho y los tres puntos permiten **Eliminar definitivamente**. **Vaciar** elimina todos los mapas de la papelera, incluso si hay una búsqueda activa; ambas eliminaciones piden confirmación. Los archivos ajenos a los mapas se conservan.

@@ -63,7 +63,7 @@ async function directoryNames(page: Page, path: string[] = []) {
     let directory = await (await navigator.storage.getDirectory()).getDirectoryHandle('Mapas de prueba')
     for (const part of path) directory = await directory.getDirectoryHandle(part)
     const names: string[] = []
-    for await (const name of (directory as unknown as { keys(): AsyncIterableIterator<string> }).keys()) names.push(name)
+    for await (const name of (directory as unknown as { keys(): AsyncIterableIterator<string> }).keys()) if (name !== '.arbol-folder.json') names.push(name)
     return names.sort()
   }, path)
 }
@@ -77,6 +77,55 @@ async function renameRoot(page: Page, title: string) {
   await page.keyboard.press('Control+s')
   await expect(page.locator('#editor')).toHaveAttribute('data-save-state', 'saved')
 }
+
+test('biblioteca muestra solo carpetas de la interfaz y permite agregar una carpeta anterior', async ({ page }) => {
+  await fileSystem(page); await connect(page)
+  await page.evaluate(async () => {
+    const directory = await (await navigator.storage.getDirectory()).getDirectoryHandle('Mapas de prueba')
+    const external = await directory.getDirectoryHandle('Audio externo', { create: true })
+    const stream = await (await external.getFileHandle('nota.txt', { create: true })).createWritable()
+    await stream.write('Contenido original'); await stream.close()
+  })
+  await page.getByRole('button', { name: 'Volver a la biblioteca' }).click()
+  await expect(page.locator('.folder-card')).toHaveCount(0)
+  await createFolder(page, 'Creada desde la interfaz')
+  await expect(page.getByRole('button', { name: 'Abrir carpeta Creada desde la interfaz', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Abrir carpeta Audio externo', exact: true })).toHaveCount(0)
+  await page.reload()
+  await page.getByRole('button', { name: 'Volver a la biblioteca' }).click()
+  await expect(page.locator('.folder-card')).toHaveCount(1)
+  await createFolder(page, 'Audio externo')
+  await expect(page.locator('.folder-card')).toHaveCount(2)
+  const text = await page.evaluate(async () => {
+    const root = await (await navigator.storage.getDirectory()).getDirectoryHandle('Mapas de prueba')
+    const directory = await root.getDirectoryHandle('Audio externo')
+    return (await (await directory.getFileHandle('nota.txt')).getFile()).text()
+  })
+  expect(text).toBe('Contenido original')
+})
+
+test('abrir y cerrar propiedades conserva el desplazamiento, zoom y nodo seleccionado', async ({ page }) => {
+  await fileSystem(page); await connect(page)
+  await (await root(page)).click(); await page.keyboard.press('Tab')
+  await page.locator('#input-box').fill('Foco de trabajo'); await page.keyboard.press('Enter')
+  const child = page.locator('#map .me-tpc').filter({ hasText: 'Foco de trabajo' })
+  await child.click()
+  await page.locator('#zoom-in').click()
+  const area = (await page.locator('#map').boundingBox())!
+  await page.mouse.move(area.x + area.width / 2, area.y + area.height / 2)
+  await page.mouse.down({ button: 'middle' })
+  await page.mouse.move(area.x + area.width / 2 + 160, area.y + area.height / 2 + 95, { steps: 5 })
+  await page.mouse.up({ button: 'middle' })
+  const transform = await page.locator('#map .map-canvas').getAttribute('style')
+  await page.getByRole('button', { name: 'Contraer panel', exact: true }).click()
+  await expect(page.locator('#inspector')).toHaveClass(/collapsed/)
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  expect(await page.locator('#map .map-canvas').getAttribute('style')).toBe(transform)
+  await page.getByRole('button', { name: 'Expandir panel', exact: true }).click()
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  expect(await page.locator('#map .map-canvas').getAttribute('style')).toBe(transform)
+  await expect(child).toHaveClass(/selected/)
+})
 
 test('carpetas anidadas, menú Crear nuevo y guardado dentro de su carpeta', async ({ page }) => {
   await fileSystem(page); await connect(page)

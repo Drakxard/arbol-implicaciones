@@ -5,8 +5,8 @@ on:
       suite:
         description: Pruebas a ejecutar
         type: choice
-        options: [cambios, completa]
-        default: cambios
+        options: [interfaz, cambios, completa]
+        default: interfaz
 permissions:
   contents: read
 concurrency:
@@ -26,6 +26,9 @@ jobs:
       - name: Pruebas unitarias de los cambios
         if: inputs.suite == 'cambios'
         run: node --import tsx --test tests/document.test.ts tests/library.test.ts tests/defaults.test.ts
+      - name: Pruebas unitarias de carpetas
+        if: inputs.suite == 'interfaz'
+        run: node --import tsx --test tests/library.test.ts
       - name: Todas las pruebas unitarias
         if: inputs.suite == 'completa'
         run: npm test
@@ -33,10 +36,13 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Pruebas de navegador de los cambios
         if: inputs.suite == 'cambios'
-        run: npm run test:e2e -- --grep "carpetas anidadas|mover y copiar|fallo de escritura al mover|papelera de carpetas|zoom ampliado|apariencia predeterminada|Escape confirma|exporta mapas"
+        run: npm run test:e2e -- --grep "biblioteca muestra solo carpetas|abrir y cerrar propiedades|carpetas anidadas|mover y copiar|fallo de escritura al mover|papelera de carpetas|zoom ampliado|apariencia predeterminada|Escape confirma|exporta mapas"
       - name: Todas las pruebas de navegador
         if: inputs.suite == 'completa'
         run: npm run test:e2e
+      - name: Carpetas y posición del mapa
+        if: inputs.suite == 'interfaz'
+        run: npm run test:e2e -- --grep "biblioteca muestra solo carpetas|abrir y cerrar propiedades|carpetas anidadas|mover y copiar|papelera de carpetas"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

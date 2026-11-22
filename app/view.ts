@@ -46,6 +46,7 @@ export function renderApp() {
     <h2 id="new-folder-title">Crear carpeta</h2>
     <form id="new-folder-form">
       <label for="new-folder-name">Nombre de carpeta</label><input id="new-folder-name" required maxlength="180" autocomplete="off"/>
+      <p class="hint">Si la carpeta ya existe en tu PC, se agrega a la biblioteca sin modificar sus archivos.</p>
       <p id="new-folder-error" role="alert" hidden></p>
       <div class="dialog-actions"><button type="button" id="new-folder-cancel">Cancelar</button><button type="submit">Crear carpeta</button></div>
     </form>

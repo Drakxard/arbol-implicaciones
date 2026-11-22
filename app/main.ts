@@ -390,7 +390,6 @@ on('collapse-panel', () => {
   $('collapse-panel').setAttribute('aria-expanded', String(!collapsed))
   $('collapse-panel').setAttribute('aria-label', collapsed ? 'Expandir panel' : 'Contraer panel')
 })
-new ResizeObserver(() => { if (!loading && $('outline').hidden) mind.toCenter() }).observe($('stage'))
 on('center', () => mind.toCenter())
 on('zoom-out', () => mind.scale(mind.scaleVal - .1))
 on('zoom-in', () => mind.scale(mind.scaleVal + .1))

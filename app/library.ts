@@ -20,17 +20,34 @@ export async function directoryAt(root: FileSystemDirectoryHandle, path: string[
 export async function listFolders(directory: FileSystemDirectoryHandle) {
   const folders: string[] = []
   for await (const entry of (directory as unknown as { values(): AsyncIterableIterator<FileSystemHandle> }).values()) {
-    if (entry.kind === 'directory' && entry.name.toLocaleLowerCase() !== '.papelera') folders.push(entry.name)
+    if (entry.kind === 'directory' && entry.name.toLocaleLowerCase() !== '.papelera' && await isLibraryFolder(entry as FileSystemDirectoryHandle)) folders.push(entry.name)
   }
   return folders.sort((a, b) => a.localeCompare(b, 'es', { numeric: true }))
+}
+
+export const FOLDER_MARKER = '.arbol-folder.json'
+const folderMarker = { application: 'arbol-implicaciones', kind: 'library-folder', version: 1 }
+async function isLibraryFolder(directory: FileSystemDirectoryHandle) {
+  try {
+    const data = JSON.parse(await (await (await directory.getFileHandle(FOLDER_MARKER)).getFile()).text())
+    return data?.application === folderMarker.application && data?.kind === folderMarker.kind && data?.version === 1
+  } catch { return false }
 }
 
 export async function createLibraryFolder(directory: FileSystemDirectoryHandle, name: string) {
   if (!validFolderName(name)) throw new Error('Escribí un nombre de carpeta válido, sin barras ni caracteres especiales.')
   for await (const entry of (directory as unknown as { values(): AsyncIterableIterator<FileSystemHandle> }).values()) {
-    if (entry.name.toLocaleLowerCase() === name.toLocaleLowerCase()) throw new Error('Ya existe un archivo o carpeta con ese nombre.')
+    if (entry.name.toLocaleLowerCase() === name.toLocaleLowerCase() &&
+      (entry.kind !== 'directory' || await isLibraryFolder(entry as FileSystemDirectoryHandle))) throw new Error('Ya existe un archivo o carpeta con ese nombre.')
   }
-  await directory.getDirectoryHandle(name, { create: true })
+  const folder = await directory.getDirectoryHandle(name, { create: true })
+  try {
+    await folder.getFileHandle(FOLDER_MARKER)
+    throw new Error('Esta carpeta contiene un archivo de identificación incompatible. No se modificó.')
+  } catch (error) { if (!(error instanceof DOMException) || error.name !== 'NotFoundError') throw error }
+  const stream = await (await folder.getFileHandle(FOLDER_MARKER, { create: true })).createWritable()
+  try { await stream.write(JSON.stringify(folderMarker)); await stream.close() }
+  catch (error) { await stream.abort().catch(() => {}); throw error }
 }
 
 /** Copies are independent documents, including internal relationship identifiers. */
@@ -173,7 +190,12 @@ export async function trashMap(root: FileSystemDirectoryHandle, path: string[], 
 export async function restoreMap(root: FileSystemDirectoryHandle, entry: TrashedMap) {
   const trash = await root.getDirectoryHandle('.papelera')
   const source = await directoryAt(trash, entry.path)
-  const destination = await directoryAt(root, entry.path, true)
+  let destination: FileSystemDirectoryHandle = root
+  for (const name of entry.path) {
+    const child = await directoryAt(destination, [name], true)
+    if (!await isLibraryFolder(child)) await createLibraryFolder(destination, name)
+    destination = child
+  }
   await moveMap(source, destination, entry.fileName, mapFileName(entry.data.nodeData.topic))
 }
 
