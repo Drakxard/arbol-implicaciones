@@ -1,9 +1,5 @@
-# Licencias y procedencia
+# Dependencias y referencias
 
-Este repositorio deriva de https://github.com/SSShooter/mind-elixir-core (versión 6.0.3). Se conserva su código, historial disponible y licencia MIT original:
-
-Copyright (c) 2019 DjZhou.
-
-La adaptación en español, la integración con Groq y su configuración también se distribuyen bajo MIT. No hay afiliación oficial con Mind Elixir ni con Groq.
-
-La exportación de imágenes usa `@mind-elixir/export-mindmap` (MIT). Las herramientas y dependencias incluidas conservan sus licencias respectivas, disponibles en sus paquetes. No se redistribuyen claves ni respuestas de servicios de IA en este repositorio.
+- **Mind Elixir Core 6.0.3** — Copyright DjZhou y colaboradores, licencia MIT. [Código original](https://github.com/SSShooter/mind-elixir-core). Instalado desde el paquete oficial `mind-elixir`; su licencia se incluye en la distribución npm. Se conserva además la licencia original de este repositorio en `LICENSE`.
+- **Mind Elixir App** — referencia visual proporcionada por el usuario. Los paneles de esta app se implementaron aquí; no se incorpora código de su aplicación de escritorio.
+- Los iconos de herramientas se dibujan como SVG en `app/icons.ts`. Los pictogramas de nodos son emojis del sistema operativo.

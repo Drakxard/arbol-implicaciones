@@ -6,12 +6,8 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
 jobs:
-  app:
-    name: Aplicación y Groq simulado
+  editor:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -21,42 +17,14 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run typecheck:app
-      - run: npm run test:api
+      - run: npm test
       - run: npm run build
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:app
+      - run: npm run test:e2e
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: app-failures
+          name: editor-failures
           path: |
             playwright-report/
             test-results/
-            test-results-app/
-          retention-days: 7
-  core:
-    name: Pruebas originales de Mind Elixir
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm run build:core
-      - run: npm run type-test
-      - run: npx playwright install --with-deps chromium
-      # Upstream only provides macOS/Windows pixel baselines, not Linux ones.
-      # Run every functional assertion without generating new reference images.
-      - run: npm run test:core -- --reporter=list,html
-      - uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: core-failures
-          path: |
-            playwright-report/
-            test-results/
-          retention-days: 7

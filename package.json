@@ -1,112 +1,25 @@
 {
-  "name": "mind-elixir",
-  "version": "6.0.3",
-  "type": "module",
+  "name": "arbol-implicaciones",
+  "version": "1.0.0",
   "private": true,
-  "packageManager": "npm@10.9.2",
-  "description": "Mind elixir is a free open source mind map core.",
-  "keywords": [
-    "mind-elixir",
-    "mindmap",
-    "dom",
-    "visualization"
-  ],
+  "type": "module",
+  "description": "Editor local de mapas mentales basado en Mind Elixir",
+  "engines": { "node": ">=22.12.0" },
   "scripts": {
-    "lint": "biome check --write --error-on-warnings src",
-    "format": "biome format --write src",
-    "dev": "vite",
-    "build": "vite build --config vite.app.config.ts",
-    "build:core": "node scripts/build.js && tsc",
-    "dev:app": "vite --config vite.app.config.ts --host 127.0.0.1",
-    "typecheck:app": "tsc -p tsconfig.app.json",
-    "test:api": "node --import tsx --test app-tests/*.test.ts",
-    "test:app": "playwright test --config playwright.app.config.ts",
-    "test:core": "playwright test --ignore-snapshots",
-    "tsc": "tsc",
-    "type-test": "tsc -p tsconfig.type-test.json",
-    "preview": "vite preview",
-    "test": "playwright test",
-    "test:ui": "playwright test --ui",
-    "test:clean": "rimraf .nyc_output coverage",
-    "test:coverage": "npm run test:clean && npm test && npm run nyc && npx http-server ./coverage",
-    "nyc": "nyc report --reporter=html",
-    "doc": "api-extractor run --local --verbose",
-    "doc:md": "api-documenter markdown --input-folder ./api --output-folder ./md",
-    "gen:members": "node scripts/gen-members.js",
-    "beta": "npm run build:core && npm publish --tag beta"
+    "dev": "vite --host 127.0.0.1",
+    "dev:app": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "preview": "vite preview --host 127.0.0.1",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "test:e2e": "playwright test"
   },
-  "exports": {
-    ".": {
-      "types": "./dist/types/index.d.ts",
-      "import": "./dist/MindElixir.js"
-    },
-    "./lite": {
-      "import": "./dist/MindElixirLite.js"
-    },
-    "./example": {
-      "types": "./dist/types/exampleData/1.d.ts",
-      "import": "./dist/example.js"
-    },
-    "./readme.md": "./readme.md",
-    "./package.json": "./package.json",
-    "./style": "./dist/MindElixir.css",
-    "./style.css": "./dist/MindElixir.css",
-    "./outliner": {
-      "types": "./dist/types/outliner/index.d.ts",
-      "import": "./dist/Outliner.js"
-    },
-    "./outliner/style.css": "./dist/Outliner.css",
-    "./plaintextConverter": {
-      "types": "./dist/types/utils/plaintextConverter.d.ts",
-      "import": "./dist/PlaintextConverter.js"
-    },
-    "./i18n": {
-      "types": "./dist/types/i18n.d.ts",
-      "import": "./dist/i18n.js"
-    }
-  },
-  "main": "dist/MindElixir.js",
-  "types": "dist/types/index.d.ts",
-  "lint-staged": {
-    "src/**/*.{ts,js,json}": [
-      "biome check --write --no-errors-on-unmatched --files-ignore-unknown=true"
-    ]
-  },
-  "files": [
-    "package.json",
-    "dist"
-  ],
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/SSShooter/mind-elixir-core.git"
-  },
-  "homepage": "https://mind-elixir.com/",
-  "author": "ssshooter",
-  "license": "MIT",
+  "dependencies": { "mind-elixir": "6.0.3" },
   "devDependencies": {
-    "@biomejs/biome": "2.5.6",
-    "@commitlint/cli": "^20.0.0",
-    "@commitlint/config-conventional": "^20.0.0",
-    "@microsoft/api-documenter": "^7.26.34",
-    "@microsoft/api-extractor": "^7.52.13",
-    "@mind-elixir/export-mindmap": "^0.1.9",
-    "@playwright/test": "^1.62.1",
-    "@rollup/plugin-strip": "^3.0.4",
+    "@playwright/test": "1.62.1",
     "@types/node": "^24.5.2",
-    "baseline-browser-mapping": "^2.10.21",
-    "browserslist": "^4.28.7",
-    "husky": "^9.1.7",
-    "katex": "^0.16.22",
-    "lightningcss": "^1.33.0",
-    "lint-staged": "^16.2.1",
-    "marked": "^16.3.0",
-    "nyc": "^17.1.0",
-    "rimraf": "^6.0.1",
-    "simple-markdown-to-html": "^1.0.0",
     "tsx": "^4.23.15",
-    "typescript": "^7.0.2",
-    "typescript-5": "npm:typescript@^5.9.3",
-    "vite": "^8.2.0",
-    "vite-plugin-istanbul": "^9.0.1"
+    "typescript": "~5.9.3",
+    "vite": "^8.2.0"
   }
 }

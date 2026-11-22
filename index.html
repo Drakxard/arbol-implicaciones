@@ -1,62 +1,14 @@
 <!doctype html>
 <html lang="es">
-
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="X-UA-Compatible" content="ie=edge" />
-  <title>Árbol · Mind Elixir + Groq</title>
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-  <style>
-    /* test tailwind compatibility */
-    *,
-    ::before,
-    ::after {
-      box-sizing: border-box;
-      border-width: 0;
-      border-style: solid;
-      border-color: #e5e7eb;
-    }
-
-  </style>
-</head>
-
-<body>
-  <header>
-    <a class="brand" href="/" aria-label="Árbol, inicio"><span class="brand-icon" aria-hidden="true">⋈</span><span>Árbol<small>UN ESPACIO PARA COMPRENDER</small></span></a>
-    <div class="header-actions"><span id="save-status" role="status">Guardado en este navegador</span><button id="new-map">Nuevo mapa</button><button id="help" aria-label="Ver ayuda">Ayuda</button></div>
-  </header>
-  <main>
-    <section class="workspace" aria-label="Editor del mapa">
-      <nav class="toolbar" aria-label="Herramientas del mapa">
-        <button id="add-child">+ Concepto</button><button id="add-sibling">+ Hermano</button><button id="fold">Plegar / desplegar</button><button id="remove-node">Eliminar</button>
-        <span class="separator"></span><button id="undo" disabled>Deshacer</button><button id="redo" disabled>Rehacer</button>
-        <span class="separator"></span><button id="import-map">Importar JSON</button><button id="export-map">Exportar JSON</button><button id="export-png">PNG</button>
-        <input id="file-input" type="file" accept=".json,application/json" hidden aria-label="Archivo de mapa" />
-      </nav>
-      <div class="canvas-wrap"><div id="map" role="region" aria-label="Mapa de conceptos"></div><div class="canvas-caption">Conectá lo que sabés. Explorá lo que falta.</div></div>
-      <footer><span><kbd>Tab</kbd> agregar · <kbd>Enter</kbd> hermano · doble clic para editar · clic derecho para conectar</span><div><button id="zoom-out" aria-label="Alejar">−</button><button id="center">Centrar</button><button id="zoom-in" aria-label="Acercar">+</button></div></footer>
-    </section>
-    <aside aria-label="Asistente de estudio">
-      <div class="aside-heading"><span class="eyebrow">MIND ELIXIR + GROQ</span><h1>De la idea a la comprensión.</h1><p>Construí el mapa a tu ritmo. Pedí ayuda donde quieras profundizar.</p></div>
-      <section class="selection">
-        <span class="eyebrow">CONCEPTO SELECCIONADO</span><p id="selected-topic">Seleccioná un concepto del mapa</p>
-        <label for="node-note">Nota del concepto</label><textarea id="node-note" rows="3" placeholder="Una explicación, una duda o un ejemplo propio…" disabled></textarea>
-      </section>
-      <form id="ai-form">
-        <label for="ai-action">¿Qué querés hacer?</label>
-        <select id="ai-action"><option value="generate">Generar un mapa nuevo</option><option value="expand">Ampliar el concepto seleccionado</option><option value="explain">Explicar el concepto</option><option value="examples">Proponer ejemplos</option><option value="questions">Crear preguntas de repaso</option></select>
-        <label for="ai-text">Tema, texto o pregunta</label><textarea id="ai-text" rows="4" required placeholder="Por ejemplo: continuidad y derivabilidad. ¿Qué implica qué y bajo qué condiciones?"></textarea>
-        <button class="primary" id="ask-ai" type="submit">Explorar con Groq <span aria-hidden="true">✦</span></button>
-        <p class="fine">La propuesta se muestra antes de cambiar tu mapa. Revisá sus explicaciones con tu material de estudio.</p>
-      </form>
-      <section id="proposal" hidden aria-label="Propuesta de Groq"><h2>Una propuesta para tu mapa</h2><p id="proposal-summary"></p><ul id="proposal-nodes"></ul><p id="proposal-effect" class="fine"></p><div class="proposal-actions"><button id="apply-ai" class="primary">Aplicar propuesta</button><button id="discard-ai">Descartar</button></div></section>
-      <p class="attribution">Basado en <a href="https://github.com/SSShooter/mind-elixir-core" target="_blank" rel="noreferrer">Mind Elixir Core</a> · MIT</p>
-    </aside>
-  </main>
-  <div id="message" role="status" aria-live="polite" hidden></div>
-  <dialog id="help-dialog"><h2>Tu pizarra de estudio</h2><p>Doble clic para editar un concepto. Usá Tab para agregar un hijo y Enter para un hermano. También podés arrastrar conceptos para reorganizarlos.</p><p>El menú del clic derecho permite conectar conceptos, crear resúmenes y cambiar su posición. Seleccioná una flecha y hacé doble clic en su etiqueta para describir la relación.</p><p>Ctrl/Cmd + Z deshace; Ctrl/Cmd + Shift + Z rehace. Las notas se guardan al salir del campo. Tus cambios quedan en este navegador: exportá JSON para hacer una copia o llevar el mapa a otro dispositivo.</p><p>La IA funciona cuando el servidor tiene GROQ_API_KEY. Solo se envían el texto escrito y el concepto seleccionado con su nota. Los vínculos representan tus ideas, no una comprobación automática de su validez.</p><button id="close-help">Entendido</button></dialog>
-  <script type="module" src="/app/main.ts"></script>
-</body>
-
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Tu mapa mental, guardado en tu propia carpeta." />
+    <title>Árbol · Editor de mapas mentales</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/app/main.ts"></script>
+  </body>
 </html>
