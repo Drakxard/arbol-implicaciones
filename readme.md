@@ -31,6 +31,7 @@ El archivo contiene el JSON nativo de Mind Elixir, imágenes locales en base64 y
 - Arrastrá con el botón central del mouse para mover la pizarra. El icono de mano de la barra izquierda permite moverla arrastrando con el botón izquierdo, incluso sobre los nodos.
 - Clic derecho: operaciones del núcleo, relaciones y resúmenes. Arrastrá nodos para reorganizarlos.
 - Sin selección, el panel muestra la configuración global. Seleccioná un nodo para ver **General**, **Imagen** y **Nota**. Clic en el fondo para volver a la configuración.
+- Los hijos heredan el color de texto de sus padres, salvo que tengan uno propio. Sin colores personalizados, todas las ramas usan el mismo color legible del tema; el blanco predeterminado de la raíz queda reservado a su fondo oscuro. **Limpiar** vuelve a heredar el color.
 - La búsqueda encuentra también nodos de ramas plegadas. El icono de mapa alterna con un esquema que comparte documento e historial.
 - El teclado de la barra o Shift+/ abre los atajos. Ctrl+Z deshace y Ctrl+Y o Ctrl+Shift+Z rehace.
 - La fuente documental acepta texto o una URL como referencia. No se descarga ni analiza ese material.

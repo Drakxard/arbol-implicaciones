@@ -124,6 +124,8 @@ function applyAppearance() {
   const base = settings.theme === 'Oscuro' ? MindElixir.DARK_THEME : MindElixir.THEME
   const theme: Theme = { ...base, name: settings.theme, palette: [...base.palette], cssVar: { ...base.cssVar } }
   if (settings.theme === 'Claro') theme.cssVar!['--bgcolor'] = '#ffffff'
+  // Keep unstyled descendants as readable as the main branch labels.
+  theme.cssVar!['--color'] = theme.cssVar!['--main-color']
   if (settings.textColor) {
     theme.cssVar!['--root-color'] = settings.textColor
     theme.cssVar!['--main-color'] = settings.textColor
@@ -191,7 +193,24 @@ function updateLayoutButtons() {
     $(id).setAttribute('aria-pressed', String(mind.direction === direction))
   }
 }
+function inheritedTextColor(node: NodeObj): string {
+  // A root's default white text belongs to its dark background, not its branches.
+  // Explicit colors, including an explicit root color, do inherit.
+  let ancestor: NodeObj | undefined = node
+  while (ancestor) {
+    if (ancestor.style?.color) return ancestor.style.color
+    ancestor = ancestor.parent
+  }
+  const variable = node.parent ? '--main-color' : '--root-color'
+  return getComputedStyle(mind.container).getPropertyValue(variable).trim() || (node.parent ? '#444446' : '#ffffff')
+}
+function updateInheritedTextColors() {
+  for (const element of mind.container.querySelectorAll<HTMLElement & { nodeObj: NodeObj }>('.me-tpc')) {
+    if (element.nodeObj?.parent) element.style.color = inheritedTextColor(element.nodeObj)
+  }
+}
 function refreshInspector() {
+  updateInheritedTextColors()
   const node = mind.currentNode?.nodeObj
   const changedSelection = selectedId !== (node?.id ?? '')
   selectedId = node?.id ?? ''
@@ -212,7 +231,7 @@ function refreshInspector() {
   updateLayoutButtons()
   if (!node) return
   const root = node.id === mind.nodeData.id
-  setColor('node-color', node.style?.color, root ? '#ffffff' : '#444446')
+  setColor('node-color', node.style?.color, inheritedTextColor(node))
   setColor('node-background', node.style?.background, root ? '#4c4f69' : '#ffffff')
   field('node-font-size').value = String(parseInt(node.style?.fontSize ?? (root ? '25' : '16')))
   $('font-size-value').textContent = `${field('node-font-size').value}px`
