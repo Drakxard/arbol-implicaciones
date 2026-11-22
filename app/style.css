@@ -135,6 +135,41 @@ kbd { display: inline-block; font-family: Consolas, monospace; font-size: 11px; 
 .library-search #library-search { padding-left: 32px; min-height: 34px; }
 #create-map { border: none; background: #19191c; color: #fff; border-radius: 6px; padding: 9px 13px; display: flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 12px; font-weight: 600; box-shadow: 0 1px 3px #0002; }
 #create-map svg { width: 15px; height: 15px; }
+#create-controls { position: relative; }
+#create-menu { position: absolute; right: 0; top: calc(100% + 5px); width: 160px; padding: 5px; border: 1px solid var(--border); border-radius: 7px; background: white; box-shadow: 0 4px 16px #0002; z-index: 20; }
+#create-menu button { display: flex; gap: 8px; align-items: center; width: 100%; border: 0; padding: 10px; background: white; border-radius: 4px; text-align: left; }
+#create-menu button:hover { background: #f1f1f6; }
+#create-menu svg { width: 18px; height: 18px; }
+#empty-trash { border: 1px solid #dbb2b2; color: #982f35; border-radius: 6px; background: white; padding: 8px 16px; }
+#library-breadcrumbs { display: flex; gap: 6px; align-items: center; overflow-x: auto; white-space: nowrap; padding: 2px 0 14px; font-size: 13px; }
+#library-breadcrumbs button { border: 0; background: transparent; padding: 5px 8px; border-radius: 4px; }
+#library-breadcrumbs button:hover { background: #f1f1f6; }
+#library-breadcrumbs button[aria-current=location] { font-weight: 600; }
+.folder-card { border: 1px solid var(--border); border-radius: 6px; min-width: 0; }
+.folder-card-open { width: 100%; height: 100%; padding: 0; border: 0; border-radius: 6px; background: white; text-align: left; overflow: hidden; }
+.folder-card-open:hover { background: #f1f1f6; }
+.folder-preview { height: 176px; display: grid; place-items: center; background: #f7f7f8; color: #817cc1; }
+.folder-preview svg { width: 80px; height: 80px; }
+.folder-card .map-card-info { overflow-wrap: anywhere; }
+.drop-target { outline: 3px solid #41bdf4 !important; outline-offset: -3px; background: #eaf7ff !important; }
+.map-card.dragging { opacity: .4; }
+.map-card-info small { display: block; margin-top: 6px; color: var(--muted); overflow-wrap: anywhere; }
+#transfer-bar { position: fixed; bottom: 0; left: 0; right: 0; display: flex; align-items: center; gap: 16px; padding: 16px 24px; min-height: 72px; background: white; border-top: 1px solid var(--border); box-shadow: 0 -3px 16px #0001; z-index: 30; }
+#transfer-description { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#transfer-bar > div { margin-left: auto; display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+#transfer-bar button { padding: 10px 16px; border: 1px solid var(--border); border-radius: 6px; background: white; }
+#transfer-bar #transfer-confirm { color: white; background: #292934; border-color: #292934; }
+.choosing-destination .library-content, .choosing-destination .library-sidebar { padding-bottom: 90px; }
+#library-context-menu { position: fixed; padding: 5px; min-width: 205px; background: white; border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 4px 16px #0002; z-index: 40; }
+#library-context-menu button { display: block; width: 100%; text-align: left; padding: 10px; border: 0; border-radius: 4px; background: white; }
+#library-context-menu button:hover, #library-context-menu button:focus { background: #f1f1f6; }
+#new-folder-dialog { width: min(420px, calc(100vw - 32px)); }
+#new-folder-dialog label { display: block; margin-bottom: 8px; }
+#new-folder-error { color: #982f35; font-size: 13px; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 20px; }
+.dialog-actions button { padding: 9px 14px; background: white; border: 1px solid var(--border); border-radius: 6px; }
+.dialog-actions button[type=submit] { color: white; background: #292934; }
+@media (max-width: 600px) { #transfer-bar { flex-wrap: wrap; gap: 6px; padding: 10px 12px; } #transfer-description { width: 100%; } .choosing-destination .library-content { padding-bottom: 120px; } }
 #library-cards { display: grid; grid-template-columns: repeat(auto-fill, 180px); gap: 16px; }
 .map-card { border: 1px solid var(--border); border-radius: 6px; position: relative; min-width: 0; }
 .map-card-open { display: block; width: 100%; padding: 0; border: none; border-radius: 6px; overflow: hidden; background: #fff; text-align: left; }
@@ -147,7 +182,17 @@ kbd { display: inline-block; font-family: Consolas, monospace; font-size: 11px; 
 .map-card-menu { position: absolute; right: 4px; top: 4px; }
 .map-card-menu summary { list-style: none; display: grid; place-items: center; width: 24px; height: 24px; background: #999; color: white; border-radius: 6px; cursor: pointer; font-size: 20px; line-height: 16px; }
 .map-card-menu summary::-webkit-details-marker { display: none; }
-.map-card-menu > button { position: absolute; right: 0; top: 28px; width: 184px; padding: 10px; display: flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 6px; background: white; box-shadow: 0 3px 12px #0002; z-index: 1; font-size: 12px; }
+.map-card-actions { position: absolute; right: 0; top: 28px; width: 200px; padding: 5px; border: 1px solid var(--border); border-radius: 6px; background: white; box-shadow: 0 3px 12px #0002; z-index: 6; font-size: 12px; }
+.map-card-actions button, .map-card-actions summary { width: 100%; height: auto; display: flex; align-items: center; gap: 6px; padding: 9px; background: white; color: #111; border: 0; border-radius: 4px; font-size: 12px; text-align: left; }
+.map-card-actions button:hover, .map-card-actions summary:hover { background: #f1f1f6; }
+.map-card-actions details[open] > summary { font-weight: bold; }
+.map-card-actions details > button { padding-left: 20px; }
+.export-map, .export-map .map-container { font-family: var(--map-font); }
+.export-map .me-tpc { font-family: inherit; }
+.export-map .me-root > .me-tpc { font-size: 25px; }
+.export-map .me-main > .me-wrapper > .me-parent > .me-tpc { font-size: 16px; }
+.export-map .me-tpc { --node-font-family: var(--map-font); }
+#image-paste { margin-bottom: 12px; }
 .map-card-menu svg { width: 16px; height: 16px; }
 #library-empty { color: var(--muted); font-size: 13px; margin: 28px 8px; }
 #library-error { color: #a52d39; background: #fff4f4; border: 1px solid #f0d6d9; border-radius: 6px; padding: 10px; font-size: 13px; }

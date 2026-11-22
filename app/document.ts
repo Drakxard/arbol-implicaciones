@@ -8,13 +8,17 @@ export type EditorSettings = {
   branchStyle: 'curve' | 'straight' | 'orthogonal'
   fontFamily: string
   textColor: string
+  rootColor: string
+  rootFontSize: number | null
+  descendantColor: string
+  descendantFontSize: number | null
   source: string
 }
 
 export function defaultSettings(): EditorSettings {
   const now = new Date().toISOString()
   return { formatVersion: 1, createdAt: now, updatedAt: now, theme: 'Latte', branchStyle: 'curve',
-    fontFamily: 'Times New Roman', textColor: '', source: '' }
+    fontFamily: 'Times New Roman', textColor: '', rootColor: '', rootFontSize: null, descendantColor: '', descendantFontSize: null, source: '' }
 }
 
 export function newDocument(): MindElixirData {
@@ -34,6 +38,10 @@ export function settingsFrom(data: MindElixirData): EditorSettings {
     branchStyle: ['curve', 'straight', 'orthogonal'].includes(raw.branchStyle) ? raw.branchStyle : 'curve',
     fontFamily: typeof raw.fontFamily === 'string' ? raw.fontFamily : defaults.fontFamily,
     textColor: typeof raw.textColor === 'string' ? raw.textColor : '',
+    rootColor: typeof raw.rootColor === 'string' && /^#[a-f0-9]{6}$/i.test(raw.rootColor) ? raw.rootColor : '',
+    rootFontSize: Number.isInteger(raw.rootFontSize) && raw.rootFontSize >= 10 && raw.rootFontSize <= 64 ? raw.rootFontSize : null,
+    descendantColor: typeof raw.descendantColor === 'string' && /^#[a-f0-9]{6}$/i.test(raw.descendantColor) ? raw.descendantColor : '',
+    descendantFontSize: Number.isInteger(raw.descendantFontSize) && raw.descendantFontSize >= 10 && raw.descendantFontSize <= 64 ? raw.descendantFontSize : null,
     source: typeof raw.source === 'string' ? raw.source : '',
   }
 }

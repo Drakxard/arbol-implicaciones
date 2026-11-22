@@ -28,13 +28,28 @@ export function renderApp() {
     </aside>
     <section class="library-content">
       <div class="library-toolbar"><div class="library-search">${icon('search')}<input id="library-search" type="search" aria-label="Buscar en mapas mentales" placeholder="Buscar en mapa mental…"/></div>
-        <button type="button" id="create-map">${icon('add')} Crear nuevo</button>
+        <div id="create-controls">
+          <button type="button" id="create-map" aria-expanded="false" aria-controls="create-menu">${icon('add')} Crear nuevo</button>
+          <div id="create-menu" hidden><button type="button" id="create-folder">${icon('folder')} Carpeta</button><button type="button" id="create-new-map">${icon('add')} Mapa</button></div>
+        </div>
+        <button type="button" id="empty-trash" hidden>Vaciar</button>
       </div>
+      <nav id="library-breadcrumbs" aria-label="Ubicación actual"></nav>
       <p id="library-error" role="alert" hidden></p>
       <div id="library-cards"></div>
       <p id="library-empty" hidden>No hay mapas en esta carpeta.</p>
     </section>
+    <footer id="transfer-bar" aria-label="Destino del mapa" hidden><span id="transfer-description"></span><div><button type="button" id="transfer-cancel">Cancelar</button><button type="button" id="transfer-confirm">Mover aquí</button></div></footer>
+    <div id="library-context-menu" role="menu" aria-label="Opciones de papelera" hidden></div>
   </main>
+  <dialog id="new-folder-dialog" aria-labelledby="new-folder-title">
+    <h2 id="new-folder-title">Crear carpeta</h2>
+    <form id="new-folder-form">
+      <label for="new-folder-name">Nombre de carpeta</label><input id="new-folder-name" required maxlength="180" autocomplete="off"/>
+      <p id="new-folder-error" role="alert" hidden></p>
+      <div class="dialog-actions"><button type="button" id="new-folder-cancel">Cancelar</button><button type="submit">Crear carpeta</button></div>
+    </form>
+  </dialog>
   <main id="editor" aria-label="Editor de mapas mentales">
     <section id="stage" aria-label="Área de trabajo">
       <div id="map" aria-label="Mapa mental"></div>
@@ -87,6 +102,13 @@ export function renderApp() {
         </div>
         <div class="panel-body">
           <section id="panel-general" role="tabpanel" aria-labelledby="tab-general">
+            <div id="descendant-settings" hidden>
+              <h3>Nodos descendientes</h3>
+              ${colorField('descendant-color', 'Color de texto de descendientes')}
+              <div class="field"><label for="descendant-font-size">Tamaño de descendientes (px)</label><input id="descendant-font-size" type="number" min="10" max="64" placeholder="16"/><button type="button" class="text-button" id="descendant-size-clear">Limpiar tamaño de descendientes</button></div>
+              <p class="hint">Los colores y tamaños de texto configurados desde la raíz se usan por defecto en todos los mapas de este navegador. Se respetan los estilos individuales de los descendientes.</p>
+              <h3>Este nodo</h3>
+            </div>
             ${colorField('node-color', 'Color')}
             ${colorField('node-background', 'Color de fondo')}
             <div class="field"><label for="node-font-size">Tamaño de letra</label><div class="range-row"><output id="font-size-value" for="node-font-size">16px</output><input id="node-font-size" type="range" min="10" max="64" value="16"/></div></div>
@@ -95,6 +117,7 @@ export function renderApp() {
             <div class="field"><label for="node-url">URL</label><input type="url" id="node-url" placeholder="https://…"/><p class="hint">Añadí un enlace a este nodo.</p></div>
           </section>
           <section id="panel-image" role="tabpanel" aria-labelledby="tab-image" hidden>
+            <button type="button" class="wide-button" id="image-paste">Pegar imagen del portapapeles</button>
             <div class="field"><label for="image-type">Tipo de imagen</label><select id="image-type"><option value="local">Imagen local</option><option value="url">URL de imagen</option></select></div>
             <div id="image-local-field"><button type="button" class="wide-button" id="image-upload">${icon('upload')} Seleccionar imagen local</button><input id="image-file" type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden/></div>
             <div id="image-url-field" hidden><label for="image-url">URL de imagen</label><input id="image-url" type="url" placeholder="https://…"/><button type="button" id="image-url-apply" class="wide-button">Aplicar imagen</button></div>

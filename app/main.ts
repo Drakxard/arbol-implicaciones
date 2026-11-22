@@ -1,19 +1,21 @@
-import MindElixir, { Outliner, type MindElixirData, type NodeObj, type Theme, type MainLineParams, type SubLineParams } from 'mind-elixir'
+import MindElixir, { Outliner, type MindElixirData, type NodeObj, type Theme } from 'mind-elixir'
 import { es } from 'mind-elixir/i18n'
 import { defaultSettings, newDocument, settingsFrom, safeLink, safeImage, type EditorSettings } from './document'
 import { BrowserDirectory, FolderSession, rememberDirectory, rememberedDirectory, type WritableDirectoryHandle, type SaveState, listMaps, mapFileName, type LibraryEntry } from './storage'
 import { renderApp, emojis } from './view'
-import { mapPreview, moveMap } from './library'
+import { mapPreview, moveMap, copyMap, directoryAt, listFolders, createLibraryFolder, trashMap, listTrash, restoreMap, deleteTrashedMap, type TrashedMap } from './library'
 import { icon } from './icons'
 import { renderMarkdown } from './markdown'
 import { installCanvasPan } from './pan'
+import { themeFor, textColor, styleDescendants } from './appearance'
+import { readTextDefaults, writeTextDefaults, withTextDefaults, type TextDefaults } from './defaults'
 import './style.css'
 
 renderApp()
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T
 const field = (id: string) => $<HTMLInputElement>(id)
 const folderDialog = $<HTMLDialogElement>('folder-dialog')
-let settings = defaultSettings()
+let settings = withTextDefaults(defaultSettings())
 let loading = true
 let outline: Outliner | undefined
 let selectedId = ''
@@ -33,7 +35,7 @@ function run(action: () => unknown | Promise<unknown>) {
 }
 function on(id: string, action: () => unknown | Promise<unknown>, event = 'click') { $(id).addEventListener(event, run(action)) }
 
-const mind = new MindElixir({ el: '#map', toolBar: false, keypress: true, allowUndo: true,
+const mind = new MindElixir({ el: '#map', toolBar: false, keypress: true, allowUndo: true, scaleMin: .05, scaleMax: 5,
   newTopicName: 'Nuevo tema', markdown: renderMarkdown,
   contextMenu: { locale: es, focus: false, link: true }, theme: MindElixir.THEME })
 const initError = await mind.init(newDocument())
@@ -70,7 +72,7 @@ async function loadDocument(data: MindElixirData) {
   loading = true
   try {
     if (!$('library').hidden) showEditor()
-    settings = settingsFrom(data)
+    settings = withTextDefaults(settingsFrom(data))
     mind.clearSelection()
     selectedId = ''
     await mind.refresh(data)
@@ -108,30 +110,8 @@ function markChanged() {
   session.changed()
 }
 
-function branchPath(params: MainLineParams | SubLineParams) {
-  const { pL, pT, pW, pH, cL, cT, cW, cH, direction } = params
-  const left = direction === 'lhs'
-  const down = direction === 'down'
-  const x1 = down ? pL + pW / 2 : left ? pL : pL + pW
-  const y1 = down ? pT + pH : pT + pH / 2
-  const x2 = down ? cL + cW / 2 : left ? cL + cW : cL
-  const y2 = down ? cT : cT + cH / 2
-  if (settings.branchStyle === 'straight') return `M ${x1} ${y1} L ${x2} ${y2}`
-  return down ? `M ${x1} ${y1} V ${(y1 + y2) / 2} H ${x2} V ${y2}` : `M ${x1} ${y1} H ${(x1 + x2) / 2} V ${y2} H ${x2}`
-}
-
 function applyAppearance() {
-  const base = settings.theme === 'Oscuro' ? MindElixir.DARK_THEME : MindElixir.THEME
-  const theme: Theme = { ...base, name: settings.theme, palette: [...base.palette], cssVar: { ...base.cssVar } }
-  if (settings.theme === 'Claro') theme.cssVar!['--bgcolor'] = '#ffffff'
-  // Keep unstyled descendants as readable as the main branch labels.
-  theme.cssVar!['--color'] = theme.cssVar!['--main-color']
-  if (settings.textColor) {
-    theme.cssVar!['--root-color'] = settings.textColor
-    theme.cssVar!['--main-color'] = settings.textColor
-    theme.cssVar!['--color'] = settings.textColor
-  }
-  if (settings.branchStyle !== 'curve') { theme.generateMainBranch = branchPath; theme.generateSubBranch = branchPath }
+  const theme: Theme = themeFor(settings)
   const id = selectedId
   mind.changeTheme(theme)
   $('stage').style.setProperty('--surface', theme.cssVar!['--bgcolor']!)
@@ -146,17 +126,24 @@ function applyAppearance() {
 mind.historyStack!.register('appearance', (entry, direction) => {
   const state = structuredClone(direction === 'undo' ? entry.before : entry.after)
   settings = state.settings
+  writeTextDefaults(state.defaults ?? {})
   mind.changeCompact(state.compact)
   applyAppearance()
   refreshInspector()
 })
 function changeAppearance(change: () => void) {
-  const before = { settings: { ...settings }, compact: mind.compact }
+  const before = { settings: { ...settings }, compact: mind.compact, defaults: readTextDefaults() }
   change()
   applyAppearance()
-  const after = { settings: { ...settings }, compact: mind.compact }
+  const after = { settings: { ...settings }, compact: mind.compact, defaults: readTextDefaults() }
   mind.historyStack!.push('appearance', before, after)
   refreshInspector()
+}
+function changeTextDefault<K extends keyof TextDefaults>(key: K, value: TextDefaults[K]) {
+  changeAppearance(() => {
+    writeTextDefaults({ ...readTextDefaults(), [key]: value })
+    Object.assign(settings, { [key]: value })
+  })
 }
 
 mind.bus.addListener('operation', operation => {
@@ -194,20 +181,10 @@ function updateLayoutButtons() {
   }
 }
 function inheritedTextColor(node: NodeObj): string {
-  // A root's default white text belongs to its dark background, not its branches.
-  // Explicit colors, including an explicit root color, do inherit.
-  let ancestor: NodeObj | undefined = node
-  while (ancestor) {
-    if (ancestor.style?.color) return ancestor.style.color
-    ancestor = ancestor.parent
-  }
-  const variable = node.parent ? '--main-color' : '--root-color'
-  return getComputedStyle(mind.container).getPropertyValue(variable).trim() || (node.parent ? '#444446' : '#ffffff')
+  return textColor(node, settings, mind.container)
 }
 function updateInheritedTextColors() {
-  for (const element of mind.container.querySelectorAll<HTMLElement & { nodeObj: NodeObj }>('.me-tpc')) {
-    if (element.nodeObj?.parent) element.style.color = inheritedTextColor(element.nodeObj)
-  }
+  styleDescendants(mind, settings)
 }
 function refreshInspector() {
   updateInheritedTextColors()
@@ -231,9 +208,12 @@ function refreshInspector() {
   updateLayoutButtons()
   if (!node) return
   const root = node.id === mind.nodeData.id
-  setColor('node-color', node.style?.color, inheritedTextColor(node))
+  $('descendant-settings').hidden = !root
+  setColor('descendant-color', settings.descendantColor, '#000000')
+  setValue('descendant-font-size', settings.descendantFontSize?.toString() ?? '')
+  setColor('node-color', root ? settings.rootColor || node.style?.color : node.style?.color, inheritedTextColor(node))
   setColor('node-background', node.style?.background, root ? '#4c4f69' : '#ffffff')
-  field('node-font-size').value = String(parseInt(node.style?.fontSize ?? (root ? '25' : '16')))
+  field('node-font-size').value = root ? String(settings.rootFontSize ?? parseInt(node.style?.fontSize || '25')) : String(parseInt(node.style?.fontSize || String(settings.descendantFontSize ?? 16)))
   $('font-size-value').textContent = `${field('node-font-size').value}px`
   setValue('node-tags', (node.tags ?? []).map(tag => typeof tag === 'string' ? tag : tag.text).join(', '))
   setValue('node-url', node.hyperLink ?? '')
@@ -268,10 +248,27 @@ on('font-family', () => changeAppearance(() => { settings.fontFamily = field('fo
 on('compact', () => changeAppearance(() => { mind.changeCompact(field('compact').checked) }), 'change')
 on('global-color', () => changeAppearance(() => { settings.textColor = field('global-color').value }), 'change')
 on('global-color-clear', () => changeAppearance(() => { settings.textColor = '' }))
+on('descendant-color', () => changeTextDefault('descendantColor', field('descendant-color').value), 'change')
+on('descendant-color-clear', () => changeTextDefault('descendantColor', ''))
+on('descendant-font-size', () => {
+  const raw = field('descendant-font-size').value
+  const value = raw === '' ? null : Number(raw)
+  if (value !== null && (!Number.isInteger(value) || value < 10 || value > 64)) {
+    toast('El tamaño debe estar entre 10 y 64 píxeles.'); refreshInspector(); return
+  }
+  changeTextDefault('descendantFontSize', value)
+}, 'change')
+on('descendant-size-clear', () => changeTextDefault('descendantFontSize', null))
 on('source', () => changeAppearance(() => { settings.source = field('source').value }), 'change')
 for (const [id, property] of [['node-color', 'color'], ['node-background', 'background']] as const) {
-  on(id, () => patchNode({ style: { [property]: field(id).value } }), 'change')
-  on(`${id}-clear`, () => patchNode({ style: { [property]: '' } }))
+  on(id, () => {
+    if (property === 'color' && mind.currentNode?.nodeObj.id === mind.nodeData.id) changeTextDefault('rootColor', field(id).value)
+    else return patchNode({ style: { [property]: field(id).value } })
+  }, 'change')
+  on(`${id}-clear`, () => {
+    if (property === 'color' && mind.currentNode?.nodeObj.id === mind.nodeData.id) changeTextDefault('rootColor', '')
+    else return patchNode({ style: { [property]: '' } })
+  })
 }
 nodeTextChange('node-tags', value => ({ tags: value.split(',').map(tag => tag.trim()).filter(Boolean) }))
 nodeTextChange('node-note', value => ({ note: value }))
@@ -281,7 +278,10 @@ on('node-url', async () => {
   await patchNode({ hyperLink: value })
 }, 'change')
 field('node-font-size').addEventListener('input', () => { $('font-size-value').textContent = `${field('node-font-size').value}px` })
-on('node-font-size', () => patchNode({ style: { fontSize: field('node-font-size').value + 'px' } }), 'change')
+on('node-font-size', () => {
+  if (mind.currentNode?.nodeObj.id === mind.nodeData.id) changeTextDefault('rootFontSize', Number(field('node-font-size').value))
+  else return patchNode({ style: { fontSize: field('node-font-size').value + 'px' } })
+}, 'change')
 document.querySelectorAll<HTMLButtonElement>('[data-emoji]').forEach(button => button.addEventListener('click', run(async () => {
   const emoji = emojis[Number(button.dataset.emoji)]
   const icons = mind.currentNode?.nodeObj.icons ?? []
@@ -313,11 +313,7 @@ on('image-type', () => {
   $('image-url-field').hidden = field('image-type').value !== 'url'
 }, 'change')
 on('image-upload', () => field('image-file').click())
-on('image-file', async () => {
-  const id = selectedId
-  const file = field('image-file').files?.[0]
-  field('image-file').value = ''
-  if (!file) return
+async function attachImage(file: Blob, id: string) {
   if (!['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(file.type)) throw new Error('Elegí una imagen PNG, JPEG, GIF o WebP.')
   const url = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
@@ -326,6 +322,37 @@ on('image-file', async () => {
     reader.readAsDataURL(file)
   })
   await applyImage(url, id)
+}
+on('image-paste', async () => {
+  const id = selectedId
+  if (!id) return
+  if (!navigator.clipboard?.read) throw new Error('Usá Ctrl+V sobre el nodo para pegar la imagen.')
+  let items: ClipboardItems
+  try { items = await navigator.clipboard.read() }
+  catch { throw new Error('No se pudo acceder al portapapeles. Permití el acceso o usá Ctrl+V sobre el nodo.') }
+  for (const item of items) {
+    const type = item.types.find(type => ['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(type))
+    if (type) { await attachImage(await item.getType(type), id); return }
+  }
+  throw new Error('El portapapeles no contiene una imagen compatible.')
+})
+document.addEventListener('paste', event => {
+  if (!$('library').hidden || folderDialog.open || shortcutsDialog.open || !selectedId || !mind.editable) return
+  const target = event.target as HTMLElement
+  if (target.closest('input, textarea, select, [contenteditable]:not([contenteditable=false])')) return
+  const item = Array.from(event.clipboardData?.items ?? []).find(item => item.kind === 'file' && item.type.startsWith('image/'))
+  const file = item?.getAsFile()
+  if (!file) return
+  event.preventDefault(); event.stopImmediatePropagation()
+  const id = selectedId
+  void attachImage(file, id).catch(error => toast(error.message))
+}, true)
+on('image-file', async () => {
+  const id = selectedId
+  const file = field('image-file').files?.[0]
+  field('image-file').value = ''
+  if (!file) return
+  await attachImage(file, id)
 }, 'change')
 let imageRequest = 0
 async function applyImage(url: string, id: string) {
@@ -443,74 +470,234 @@ on('folder-close', () => folderDialog.close())
 folderDialog.addEventListener('close', () => updateSaveState(session.state, session.detail))
 on('file-menu-button', showLibrary)
 
-let libraryEntries: LibraryEntry[] = []
+let libraryEntries: (LibraryEntry & { path?: string[] })[] = []
+let libraryFolders: string[] = []
+let libraryRoot: WritableDirectoryHandle | null = null
+let libraryPath: string[] = []
 let inTrash = false
 let libraryBusy = false
-function folderHandle() { return session.directory instanceof BrowserDirectory ? session.directory.handle : null }
+type Transfer = { mode: 'move' | 'copy'; entry: LibraryEntry; source: FileSystemDirectoryHandle; path: string[] }
+let pendingTransfer: Transfer | null = null
+let draggedMap: { entry: LibraryEntry; path: string[] } | null = null
+const mapDragType = 'application/x-arbol-map'
+function folderHandle() { return libraryRoot ?? (session.directory instanceof BrowserDirectory ? session.directory.handle : null) }
 async function libraryDirectory() {
   const handle = folderHandle()
   if (!handle) return null
-  if (!inTrash) return handle
+  if (!inTrash) return directoryAt(handle, libraryPath)
   try { return await handle.getDirectoryHandle('.papelera') }
   catch (error) { if (error instanceof DOMException && error.name === 'NotFoundError') return null; throw error }
 }
 async function refreshLibrary() {
-  const handle = await libraryDirectory()
-  libraryEntries = handle ? await listMaps(handle) : []
+  const root = folderHandle()
+  if (inTrash) {
+    libraryEntries = root ? await listTrash(root) : []
+    libraryFolders = []
+  } else {
+    const handle = await libraryDirectory()
+    const [maps, folders] = handle ? await Promise.all([listMaps(handle), listFolders(handle)]) : [[], []]
+    libraryEntries = maps; libraryFolders = folders
+  }
+  $('library-error').hidden = true
   drawLibrary()
 }
+
+function closeCreateMenu() {
+  $('create-menu').hidden = true; $('create-map').setAttribute('aria-expanded', 'false')
+}
+function closeLibraryContextMenu() { $('library-context-menu').hidden = true }
+async function navigateLibrary(path: string[]) {
+  closeCreateMenu(); closeLibraryContextMenu()
+  inTrash = false; libraryPath = [...path]; field('library-search').value = ''
+  await refreshLibrary()
+}
+function setDropTarget(element: HTMLElement, path: string[]) {
+  element.addEventListener('dragover', event => {
+    if (inTrash || pendingTransfer || !event.dataTransfer?.types.includes(mapDragType)) return
+    event.preventDefault(); event.dataTransfer.dropEffect = 'move'; element.classList.add('drop-target')
+  })
+  element.addEventListener('dragleave', event => {
+    if (!element.contains(event.relatedTarget as Node | null)) element.classList.remove('drop-target')
+  })
+  element.addEventListener('drop', event => {
+    element.classList.remove('drop-target')
+    const dragged = draggedMap
+    if (inTrash || pendingTransfer || !dragged || !event.dataTransfer?.types.includes(mapDragType)) return
+    event.preventDefault(); event.stopPropagation(); draggedMap = null
+    void libraryAction(async () => {
+      const root = folderHandle(); if (!root) return
+      await moveMap(await directoryAt(root, dragged.path), await directoryAt(root, path), dragged.entry.fileName)
+      await refreshLibrary()
+    })
+  })
+}
+function drawBreadcrumbs() {
+  const nav = $('library-breadcrumbs'); nav.replaceChildren()
+  const add = (name: string, path: string[], current = false) => {
+    const button = document.createElement('button'); button.type = 'button'; button.textContent = name
+    if (current) button.setAttribute('aria-current', 'location')
+    button.addEventListener('click', run(() => libraryAction(() => navigateLibrary(path))))
+    if (!inTrash) setDropTarget(button, path)
+    nav.append(button)
+  }
+  add('Todas las carpetas', [], !inTrash && libraryPath.length === 0)
+  if (inTrash) { const label = document.createElement('span'); label.textContent = ' / Papelera'; nav.append(label); return }
+  libraryPath.forEach((name, index) => {
+    nav.append(document.createTextNode(' / ')); add(name, libraryPath.slice(0, index + 1), index === libraryPath.length - 1)
+  })
+}
+async function beginTransfer(entry: LibraryEntry, mode: Transfer['mode']) {
+  const source = await libraryDirectory(); if (!source || inTrash) return
+  pendingTransfer = { mode, entry, source, path: [...libraryPath] }
+  closeCreateMenu(); drawLibrary()
+}
+function updateTransferBar() {
+  $('transfer-bar').hidden = !pendingTransfer
+  $('library').classList.toggle('choosing-destination', !!pendingTransfer)
+  $<HTMLButtonElement>('library-trash').disabled = !!pendingTransfer
+  $<HTMLButtonElement>('choose-folder').disabled = !!pendingTransfer
+  $<HTMLButtonElement>('create-new-map').disabled = !!pendingTransfer
+  if (!pendingTransfer) return
+  $<HTMLButtonElement>('transfer-cancel').disabled = libraryBusy
+  $('transfer-description').textContent = `${pendingTransfer.mode === 'copy' ? 'Copiar' : 'Mover'} «${pendingTransfer.entry.data.nodeData.topic}» a: /${libraryPath.join('/')}`
+  $('transfer-confirm').textContent = pendingTransfer.mode === 'copy' ? 'Copiar aquí' : 'Mover aquí'
+  $<HTMLButtonElement>('transfer-confirm').disabled = libraryBusy || (pendingTransfer.mode === 'move' && JSON.stringify(pendingTransfer.path) === JSON.stringify(libraryPath))
+}
+async function removePermanently(entry: TrashedMap) {
+  const root = folderHandle(); if (!root) return
+  if (!confirm(`¿Eliminar definitivamente «${entry.data.nodeData.topic}»? Esta acción no se puede deshacer.`)) return
+  await deleteTrashedMap(root, entry); await refreshLibrary()
+}
+function trashContextMenu(event: MouseEvent, entry: TrashedMap) {
+  event.preventDefault()
+  const menu = $('library-context-menu'); menu.replaceChildren()
+  for (const [label, action] of [
+    ['Restaurar', async () => { const root = folderHandle(); if (root) { await restoreMap(root, entry); await refreshLibrary() } }],
+    ['Eliminar definitivamente', () => removePermanently(entry)],
+  ] as const) {
+    const button = document.createElement('button'); button.type = 'button'; button.textContent = label; button.setAttribute('role', 'menuitem')
+    button.addEventListener('click', run(() => { closeLibraryContextMenu(); return libraryAction(action) }))
+    menu.append(button)
+  }
+  menu.hidden = false
+  const box = menu.getBoundingClientRect()
+  menu.style.left = `${Math.max(8, Math.min(event.clientX, innerWidth - box.width - 8))}px`
+  menu.style.top = `${Math.max(8, Math.min(event.clientY, innerHeight - box.height - 8))}px`
+  menu.querySelector('button')?.focus({ preventScroll: true })
+}
 function drawLibrary() {
+  closeLibraryContextMenu(); closeCreateMenu()
   $('library-home').setAttribute('aria-current', inTrash ? 'false' : 'page')
   $('library-trash').setAttribute('aria-current', inTrash ? 'page' : 'false')
-  $('create-map').hidden = inTrash
+  $('create-controls').hidden = inTrash
+  $('empty-trash').hidden = !inTrash
+  $<HTMLButtonElement>('empty-trash').disabled = !libraryEntries.length
+  drawBreadcrumbs(); updateTransferBar()
   const query = field('library-search').value.trim().toLocaleLowerCase('es')
   const entries = libraryEntries.filter(entry => entry.data.nodeData.topic.toLocaleLowerCase('es').includes(query))
   const cards = $('library-cards')
   cards.replaceChildren()
+  const folders = libraryFolders.filter(name => name.toLocaleLowerCase('es').includes(query))
+  for (const name of folders) {
+    const card = document.createElement('article'); card.className = 'folder-card'
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'folder-card-open'; button.setAttribute('aria-label', `Abrir carpeta ${name}`)
+    const image = document.createElement('div'); image.className = 'folder-preview'; image.innerHTML = icon('folder')
+    const label = document.createElement('div'); label.className = 'map-card-info'; label.textContent = name
+    button.append(image, label); card.append(button)
+    const path = [...libraryPath, name]
+    button.addEventListener('click', run(() => libraryAction(() => navigateLibrary(path))))
+    setDropTarget(card, path); cards.append(card)
+  }
   for (const entry of entries) {
     const card = document.createElement('article'); card.className = 'map-card'
     const open = document.createElement('button'); open.type = 'button'; open.className = 'map-card-open'
     open.setAttribute('aria-label', `${inTrash ? 'Restaurar' : 'Abrir'} ${entry.data.nodeData.topic}`)
+    open.disabled = !!pendingTransfer
     const preview = document.createElement('div'); preview.className = 'map-preview'; preview.append(mapPreview(entry))
     const info = document.createElement('div'); info.className = 'map-card-info'
     const title = document.createElement('div'); title.className = 'map-card-title'; title.textContent = entry.data.nodeData.topic
     const date = document.createElement('time')
     date.textContent = new Intl.DateTimeFormat('sv-SE', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(settingsFrom(entry.data).updatedAt))
     info.append(title, date); open.append(preview, info)
+    if (inTrash && entry.path?.length) { const origin = document.createElement('small'); origin.textContent = `/${entry.path.join('/')}`; info.append(origin) }
     open.addEventListener('click', run(() => libraryAction(async () => {
-      const handle = folderHandle()
-      if (!handle) return
+      const root = folderHandle(); if (!root) return
       if (inTrash) {
-        const trash = await libraryDirectory()
-        if (trash) await moveMap(trash, handle, entry.fileName)
+        await restoreMap(root, entry as TrashedMap)
         await refreshLibrary()
-      } else if (await session.connect(new BrowserDirectory(handle, entry.fileName))) showEditor()
+      } else {
+        const handle = await libraryDirectory()
+        if (handle && await session.connect(new BrowserDirectory(handle as WritableDirectoryHandle, entry.fileName))) showEditor()
+      }
     })))
     card.append(open)
+    if (!inTrash && !pendingTransfer) {
+      card.draggable = true
+      card.addEventListener('dragstart', event => {
+        if (event.target instanceof Element && event.target.closest('.map-card-menu')) { event.preventDefault(); return }
+        draggedMap = { entry, path: [...libraryPath] }
+        event.dataTransfer?.setData(mapDragType, entry.fileName)
+        if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
+        card.classList.add('dragging')
+      })
+      card.addEventListener('dragend', () => { draggedMap = null; card.classList.remove('dragging'); document.querySelectorAll('.drop-target').forEach(element => element.classList.remove('drop-target')) })
+    }
     if (!inTrash) {
       const menu = document.createElement('details'); menu.className = 'map-card-menu'
       const summary = document.createElement('summary'); summary.textContent = '···'; summary.setAttribute('aria-label', `Opciones de ${entry.data.nodeData.topic}`)
+      const actions = document.createElement('div'); actions.className = 'map-card-actions'
+      for (const [label, mode] of [['Mover a', 'move'], ['Copiar a', 'copy']] as const) {
+        const button = document.createElement('button'); button.type = 'button'; button.textContent = label; button.disabled = !!pendingTransfer
+        button.addEventListener('click', run(() => libraryAction(() => beginTransfer(entry, mode))))
+        actions.append(button)
+      }
+      const exports = document.createElement('details')
+      const exportLabel = document.createElement('summary'); exportLabel.textContent = 'Exportar'
+      exports.append(exportLabel)
+      for (const format of ['pdf', 'svg'] as const) {
+        const button = document.createElement('button'); button.type = 'button'; button.textContent = `Exportar como ${format.toUpperCase()}`
+        button.addEventListener('click', run(() => libraryAction(async () => {
+          const buttons = Array.from($('library-cards').querySelectorAll<HTMLButtonElement>('.map-card-actions button'))
+          buttons.forEach(button => { button.disabled = true })
+          try {
+            const { exportMap } = await import('./export')
+            await exportMap(entry.data, format, message => { toast(message); clearTimeout(toastTimer) })
+            toast('Exportación completada.')
+            menu.open = false
+          } catch (error) { $('toast').hidden = true; throw error }
+          finally { buttons.forEach(button => { button.disabled = false }) }
+        })))
+        exports.append(button)
+      }
       const remove = document.createElement('button'); remove.type = 'button'; remove.innerHTML = `${icon('trash')} Mover a la papelera`
+      remove.disabled = !!pendingTransfer
       remove.addEventListener('click', run(() => libraryAction(async () => {
         const handle = folderHandle()
         if (!handle) return
-        const trash = await handle.getDirectoryHandle('.papelera', { create: true })
-        await moveMap(handle, trash, entry.fileName)
+        await trashMap(handle, libraryPath, entry.fileName)
         await refreshLibrary()
       })))
-      menu.append(summary, remove); card.append(menu)
+      actions.append(exports, remove); menu.append(summary, actions); card.append(menu)
+    } else {
+      card.addEventListener('contextmenu', event => trashContextMenu(event, entry as TrashedMap))
+      const menu = document.createElement('details'); menu.className = 'map-card-menu'
+      const summary = document.createElement('summary'); summary.textContent = '···'; summary.setAttribute('aria-label', `Opciones de ${entry.data.nodeData.topic}`)
+      const actions = document.createElement('div'); actions.className = 'map-card-actions'
+      const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = 'Eliminar definitivamente'
+      remove.addEventListener('click', run(() => libraryAction(() => removePermanently(entry as TrashedMap))))
+      actions.append(remove); menu.append(summary, actions); card.append(menu)
     }
     cards.append(card)
   }
-  $('library-empty').hidden = entries.length > 0
+  $('library-empty').hidden = entries.length + folders.length > 0
   $('library-empty').textContent = query ? 'No se encontraron mapas.' : inTrash ? 'La papelera está vacía. Hacé clic en un mapa para restaurarlo.' : 'No hay mapas en esta carpeta.'
 }
 async function libraryAction(action: () => Promise<void>) {
   if (libraryBusy) return
-  libraryBusy = true
+  libraryBusy = true; updateTransferBar()
   try { await action() }
   catch (error) { $('library-error').textContent = error instanceof Error ? error.message : 'No se pudo abrir la biblioteca.'; $('library-error').hidden = false }
-  finally { libraryBusy = false }
+  finally { libraryBusy = false; updateTransferBar() }
 }
 function showEditor() {
   $('library').hidden = true
@@ -530,12 +717,70 @@ async function showLibrary() {
   await libraryAction(refreshLibrary)
 }
 on('library-search', drawLibrary, 'input')
-on('library-home', () => libraryAction(async () => { inTrash = false; await refreshLibrary() }))
-on('library-trash', () => libraryAction(async () => { inTrash = true; await refreshLibrary() }))
-on('create-map', () => libraryAction(async () => {
-  const handle = folderHandle()
+on('library-home', () => libraryAction(() => navigateLibrary([])))
+setDropTarget($('library-home'), [])
+on('library-trash', () => libraryAction(async () => { closeCreateMenu(); inTrash = true; field('library-search').value = ''; await refreshLibrary() }))
+on('create-map', () => {
+  const open = $('create-menu').hidden
+  $('create-menu').hidden = !open; $('create-map').setAttribute('aria-expanded', String(open))
+})
+const newFolderDialog = $<HTMLDialogElement>('new-folder-dialog')
+on('create-folder', () => {
+  closeCreateMenu(); field('new-folder-name').value = ''; $('new-folder-error').hidden = true
+  newFolderDialog.showModal(); field('new-folder-name').focus()
+})
+on('new-folder-cancel', () => newFolderDialog.close())
+let creatingFolder = false
+$('new-folder-form').addEventListener('submit', event => {
+  event.preventDefault()
+  if (creatingFolder) return
+  creatingFolder = true
+  void (async () => {
+    try {
+      const handle = await libraryDirectory()
+      if (!handle || inTrash) throw new Error('Seleccioná una carpeta de biblioteca.')
+      await createLibraryFolder(handle, field('new-folder-name').value.trim())
+      newFolderDialog.close(); await refreshLibrary()
+    } catch (error) {
+      $('new-folder-error').textContent = error instanceof Error ? error.message : 'No se pudo crear la carpeta.'
+      $('new-folder-error').hidden = false
+    } finally { creatingFolder = false }
+  })()
+})
+on('transfer-cancel', () => { if (!libraryBusy) { pendingTransfer = null; drawLibrary() } })
+on('transfer-confirm', () => libraryAction(async () => {
+  const transfer = pendingTransfer, destination = await libraryDirectory()
+  if (!transfer || !destination || inTrash) return
+  if (transfer.mode === 'move') await moveMap(transfer.source, destination, transfer.entry.fileName)
+  else await copyMap(transfer.source, destination, transfer.entry.fileName)
+  pendingTransfer = null; await refreshLibrary()
+}))
+on('empty-trash', () => libraryAction(async () => {
+  const root = folderHandle()
+  if (!root || !inTrash || !libraryEntries.length) return
+  if (!confirm('¿Vaciar la papelera? Se eliminarán definitivamente todos los mapas de la papelera. Esta acción no se puede deshacer.')) return
+  const entries = [...libraryEntries] as TrashedMap[]
+  try { for (const entry of entries) await deleteTrashedMap(root, entry) }
+  finally { await refreshLibrary() }
+}))
+document.addEventListener('pointerdown', event => {
+  const target = event.target as Element
+  if (!target.closest('#create-controls')) closeCreateMenu()
+  if (!target.closest('#library-context-menu')) closeLibraryContextMenu()
+})
+$('library-context-menu').addEventListener('keydown', event => {
+  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+  event.preventDefault()
+  const buttons = Array.from($('library-context-menu').querySelectorAll('button'))
+  const index = buttons.indexOf(document.activeElement as HTMLButtonElement)
+  buttons[event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : buttons.length - 1)) % buttons.length]?.focus()
+})
+on('create-new-map', () => libraryAction(async () => {
+  if (pendingTransfer) return
+  closeCreateMenu()
+  const handle = await libraryDirectory()
   if (!handle) { if (!folderDialog.open) folderDialog.showModal(); return }
-  const directory = new BrowserDirectory(handle, null)
+  const directory = new BrowserDirectory(handle as WritableDirectoryHandle, null)
   if (!await session.connect(directory)) return
   // A new map gets a distinct root title, which also defines its filename.
   const files = new Set((await listMaps(handle)).map(entry => entry.fileName.toLocaleLowerCase()))
@@ -557,6 +802,7 @@ async function chooseFolder() {
   selectingFolder = true
   try {
     const handle = await pickDirectory({ mode: 'readwrite', id: 'arbol-map-folder' })
+    libraryRoot = handle; libraryPath = []; pendingTransfer = null
     const connected = await session.connect(new BrowserDirectory(handle))
     try { await rememberDirectory(handle) } catch { toast('El navegador no pudo recordar la carpeta para la próxima visita.') }
     if (connected) {
@@ -604,15 +850,22 @@ async function saveNow() {
   await session.save()
 }
 
+let compositionJustEnded = false
+document.addEventListener('compositionend', () => {
+  compositionJustEnded = true
+  setTimeout(() => { compositionJustEnded = false }, 0)
+}, true)
 document.addEventListener('keydown', event => {
   const mod = event.ctrlKey || event.metaKey
   const key = event.key.toLowerCase()
-  if (event.isComposing) return
+  if (event.isComposing || event.keyCode === 229 || compositionJustEnded) return
   if (event.key === 'Escape') {
     $('search-panel').hidden = true
     $('search-button').setAttribute('aria-expanded', 'false')
+    document.querySelectorAll<HTMLDetailsElement>('details[open]').forEach(menu => { menu.open = false })
+    closeCreateMenu(); closeLibraryContextMenu()
   }
-  if (folderDialog.open || shortcutsDialog.open) return
+  if (document.querySelector('dialog[open]')) return
   if (!$('library').hidden) {
     if (mod && key === 'f') { event.preventDefault(); field('library-search').focus() }
     if (mod && key === 's') event.preventDefault()
@@ -623,6 +876,15 @@ document.addEventListener('keydown', event => {
   const target = event.target as HTMLElement
   const typing = !!target.closest('input, textarea, select, [contenteditable]:not([contenteditable=false])')
   const editingMap = !!target.closest('#map #input-box')
+  if (event.key === 'Escape') {
+    // Commit through Core's blur handler before its Escape handler can restore the old text.
+    event.preventDefault(); event.stopPropagation()
+    if (editingMap) { finishMapEdit(); mind.container.focus({ preventScroll: true }) }
+    else if (target.closest('#outline [contenteditable]')) target.blur()
+    document.querySelectorAll<HTMLDetailsElement>('details[open]').forEach(menu => { menu.open = false })
+    mind.container.querySelectorAll<HTMLElement>('.context-menu').forEach(menu => { menu.hidden = true })
+    return
+  }
   if (mod && (key === 'z' || key === 'y') && (!typing || editingMap)) {
     event.preventDefault(); event.stopPropagation()
     changeHistory(key === 'y' || event.shiftKey)
@@ -650,7 +912,7 @@ if (!pickDirectory) showUnsupported()
 else {
   try {
     const handle = await rememberedDirectory()
-    if (handle) await session.connect(new BrowserDirectory(handle))
+    if (handle) { libraryRoot = handle; await session.connect(new BrowserDirectory(handle)) }
     else { folderDialog.showModal(); updateSaveState(session.state, session.detail) }
   } catch {
     $('folder-dialog-message').textContent = 'No se pudo recuperar la carpeta anterior. Seleccionala nuevamente.'

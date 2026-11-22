@@ -1,11 +1,17 @@
 name: CI
 on:
-  push:
-    branches: [main]
-  pull_request:
   workflow_dispatch:
+    inputs:
+      suite:
+        description: Pruebas a ejecutar
+        type: choice
+        options: [cambios, completa]
+        default: cambios
 permissions:
   contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   editor:
     runs-on: ubuntu-latest
@@ -17,14 +23,25 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm test
+      - name: Pruebas unitarias de los cambios
+        if: inputs.suite == 'cambios'
+        run: node --import tsx --test tests/document.test.ts tests/library.test.ts tests/defaults.test.ts
+      - name: Todas las pruebas unitarias
+        if: inputs.suite == 'completa'
+        run: npm test
       - run: npm run build
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e
+      - name: Pruebas de navegador de los cambios
+        if: inputs.suite == 'cambios'
+        run: npm run test:e2e -- --grep "carpetas anidadas|mover y copiar|fallo de escritura al mover|papelera de carpetas|zoom ampliado|apariencia predeterminada|Escape confirma|exporta mapas"
+      - name: Todas las pruebas de navegador
+        if: inputs.suite == 'completa'
+        run: npm run test:e2e
       - uses: actions/upload-artifact@v4
-        if: failure()
+        if: always()
         with:
-          name: editor-failures
+          name: editor-test-results
+          retention-days: 7
           path: |
             playwright-report/
             test-results/

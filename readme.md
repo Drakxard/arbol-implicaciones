@@ -51,3 +51,23 @@ Las pruebas de almacenamiento usan un adaptador de carpeta; las pruebas de naveg
 `npm run build` genera `dist/`. Vercel puede usar la configuración incluida; no requiere variables de entorno ni funciones de servidor. Este cambio no publica el proyecto.
 
 El historial Git original se conserva. Se mantiene la licencia MIT en `LICENSE`; las dependencias conservan sus licencias.
+
+## Descendientes, imágenes y exportación
+
+Al seleccionar la raíz, el color y tamaño de su texto, junto con los controles de **Nodos descendientes**, establecen valores predeterminados para todos los mapas de este navegador. Se aplican a mapas existentes, nuevos y exportados, y se conservan después de recargar. Los estilos individuales de los descendientes tienen prioridad. **Limpiar** recupera los valores predeterminados y los cambios admiten deshacer/rehacer. Los valores efectivos también se guardan con el mapa.
+
+**Escape** confirma la edición y conserva la selección, el zoom y la posición. **Ctrl+V** pega una imagen en el nodo seleccionado cuando no estás escribiendo; también podés usar **Pegar imagen del portapapeles** en la pestaña Imagen. Se conservan los píxeles originales en el archivo del mapa.
+
+Desde los tres puntos de una tarjeta de biblioteca, **Exportar** permite descargar **SVG** o **PDF**, incluyendo todas las ramas plegadas. El PDF tiene una sola página adaptada al árbol. Si supera el máximo de 14.400 puntos por lado, se reduce proporcionalmente sin rasterizar las líneas ni los contornos del texto. SVG y PDF usan fuentes Noto redistribuibles para texto normal y fuentes KaTeX para fórmulas; los emojis y caracteres no cubiertos se incrustan como imágenes individuales. Las imágenes mantienen su resolución original. Las imágenes externas requieren acceso CORS; si no se pueden incrustar, la exportación muestra un error.
+
+GitHub Actions se ejecuta únicamente de forma manual: no se compila ni se lanzan pruebas automáticamente al hacer push o abrir un pull request. Desde **Actions → CI → Run workflow**, la opción **cambios** ejecuta las pruebas de carpetas, papelera, valores compartidos, zoom y exportación junto con la compilación. La suite completa sigue disponible como opción manual. Los reportes y archivos de las pruebas de exportación se guardan como artefactos durante siete días.
+
+El zoom admite valores desde 5% hasta 500%, mediante los controles del mapa y la rueda del mouse. **Ctrl+0** vuelve al 100%.
+
+## Carpetas y organización de mapas
+
+**Crear nuevo** despliega **Carpeta** y **Mapa**. Las carpetas son subcarpetas reales del directorio elegido y pueden anidarse. Los mapas nuevos y sus cambios se guardan en la carpeta que estás viendo. Usá la ruta superior para volver a una carpeta anterior o a **Todas las carpetas**.
+
+Arrastrá un mapa sobre una carpeta, sobre la ruta superior o sobre **Biblioteca** para moverlo. Los tres puntos de cada mapa también incluyen **Mover a** y **Copiar a**: aparece una barra inferior que permite recorrer carpetas y confirmar con **Mover aquí** o **Copiar aquí**, o cancelar. Durante esa selección podés crear carpetas. Mover nunca reemplaza un mapa existente; copiar genera nombres como `Original (copia)` cuando hace falta y asigna identificadores nuevos al documento y sus relaciones.
+
+La papelera reúne los mapas de todas las carpetas y muestra su ubicación de origen. Un clic restaura el mapa en esa carpeta. El clic derecho y los tres puntos permiten **Eliminar definitivamente**. **Vaciar** elimina todos los mapas de la papelera, incluso si hay una búsqueda activa; ambas eliminaciones piden confirmación. Los archivos ajenos a los mapas se conservan.
