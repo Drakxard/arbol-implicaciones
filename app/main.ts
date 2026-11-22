@@ -1,8 +1,12 @@
 import MindElixir, { Outliner, type MindElixirData, type NodeObj, type Theme, type MainLineParams, type SubLineParams } from 'mind-elixir'
 import { es } from 'mind-elixir/i18n'
 import { defaultSettings, newDocument, settingsFrom, safeLink, safeImage, type EditorSettings } from './document'
-import { BrowserDirectory, FolderSession, rememberDirectory, rememberedDirectory, type WritableDirectoryHandle, type SaveState } from './storage'
+import { BrowserDirectory, FolderSession, rememberDirectory, rememberedDirectory, type WritableDirectoryHandle, type SaveState, listMaps, mapFileName, type LibraryEntry } from './storage'
 import { renderApp, emojis } from './view'
+import { mapPreview, moveMap } from './library'
+import { icon } from './icons'
+import { renderMarkdown } from './markdown'
+import { installCanvasPan } from './pan'
 import './style.css'
 
 renderApp()
@@ -30,9 +34,26 @@ function run(action: () => unknown | Promise<unknown>) {
 function on(id: string, action: () => unknown | Promise<unknown>, event = 'click') { $(id).addEventListener(event, run(action)) }
 
 const mind = new MindElixir({ el: '#map', toolBar: false, keypress: true, allowUndo: true,
-  newTopicName: 'Nuevo tema', contextMenu: { locale: es, focus: false, link: true }, theme: MindElixir.THEME })
+  newTopicName: 'Nuevo tema', markdown: renderMarkdown,
+  contextMenu: { locale: es, focus: false, link: true }, theme: MindElixir.THEME })
 const initError = await mind.init(newDocument())
 if (initError) throw initError
+installCanvasPan(mind, $<HTMLButtonElement>('hand'), finishMapEdit)
+
+function finishMapEdit() {
+  // Close the live editor before history removes or replaces its host node.
+  for (const editor of mind.container.querySelectorAll<HTMLElement>('#input-box')) {
+    editor.blur()
+    // A formerly focused editor may still be mounted; run Core's commit/cleanup.
+    if (editor.isConnected) editor.dispatchEvent(new FocusEvent('blur'))
+  }
+}
+
+function changeHistory(redo = false) {
+  finishMapEdit()
+  if (redo) mind.redo(); else mind.undo()
+  if ($('outline').hidden) mind.container.focus({ preventScroll: true })
+}
 
 function snapshot(): MindElixirData {
   const data = mind.getData()
@@ -48,9 +69,11 @@ function snapshot(): MindElixirData {
 async function loadDocument(data: MindElixirData) {
   loading = true
   try {
+    if (!$('library').hidden) showEditor()
     settings = settingsFrom(data)
     mind.clearSelection()
-    mind.refresh(data)
+    selectedId = ''
+    await mind.refresh(data)
     mind.meta = data.meta
     mind.changeCompact(data.compact ?? false)
     applyAppearance()
@@ -65,25 +88,17 @@ async function loadDocument(data: MindElixirData) {
 
 const session = new FolderSession(snapshot, loadDocument, updateSaveState)
 function updateSaveState(state: SaveState, detail: string) {
-  const labels: Record<SaveState, string> = {
-    disconnected: session?.dirty ? 'Cambios sin guardar' : 'Seleccioná una carpeta para guardar',
-    loading: 'Abriendo carpeta…', ready: 'Carpeta conectada', pending: 'Cambios pendientes', saving: 'Guardando…',
-    saved: 'Guardado', permission: 'Reconectar carpeta', error: 'No se pudo guardar o abrir', invalid: 'Archivo inválido: guardado bloqueado',
-  }
-  $('save-status').textContent = labels[state]
-  $('save-status').dataset.state = state
-  $('save-status').title = detail || (session.directory ? `${session.directory.name}/mapa-mental.json` : '')
-  $('save').dataset.dirty = String(session.dirty)
-  $('folder-name').textContent = session.directory?.name ?? 'Sin carpeta seleccionada'
+  $('editor').dataset.saveState = state
   // Never allow editing a placeholder for a remembered file we could not read.
   const blocked = state === 'loading' || (!!session.directory && !session.hasLoadedDirectory)
   if (blocked) mind.disableEdit(); else mind.enableEdit()
   for (const id of ['map', 'outline', 'global-panel', 'node-panel']) $(id).inert = blocked
   const needsAction = ['permission', 'error', 'invalid', 'disconnected'].includes(state)
   $('connection-banner').hidden = !needsAction || folderDialog.open
+  $('library-error').hidden = !needsAction || folderDialog.open
+  $('library-error').textContent = detail || 'Seleccioná una carpeta para guardar tus cambios.'
   $('connection-message').textContent = detail || 'Seleccioná una carpeta para guardar tus cambios.'
   $('connect-banner').textContent = session.directory && state !== 'invalid' ? 'Reconectar carpeta' : 'Seleccionar carpeta'
-  $<HTMLButtonElement>('reconnect-folder').disabled = !session.directory
 }
 
 function markChanged() {
@@ -340,11 +355,11 @@ on('fullscreen', async () => {
   if (document.fullscreenElement) await document.exitFullscreen()
   else await $('editor').requestFullscreen()
 })
-on('undo', () => mind.undo())
-on('redo', () => mind.redo())
+on('undo', () => changeHistory())
+on('redo', () => changeHistory(true))
 on('outline-button', () => {
   const show = $('outline').hidden
-  if (show && !outline) outline = new Outliner({ el: '#outline', mei: mind, fileName: 'Mapa mental', i18n: {
+  if (show && !outline) outline = new Outliner({ el: '#outline', mei: mind, fileName: 'Mapa mental', markdown: renderMarkdown, i18n: {
     menuTitle: 'Operaciones del nodo', outdent: 'Quitar sangría', indent: 'Añadir sangría', delete: 'Eliminar', untitled: 'Sin título', zoomInAndDrag: 'Entrar / arrastrar para mover',
   } })
   $('outline').hidden = !show
@@ -407,15 +422,112 @@ on('shortcuts-button', openShortcuts)
 on('shortcuts-close', () => shortcutsDialog.close())
 on('folder-close', () => folderDialog.close())
 folderDialog.addEventListener('close', () => updateSaveState(session.state, session.detail))
-on('file-menu-button', () => {
-  $('file-menu').hidden = !$('file-menu').hidden
-  $('file-menu-button').setAttribute('aria-expanded', String(!$('file-menu').hidden))
-})
-document.addEventListener('pointerdown', event => {
-  if (!(event.target instanceof Node) || $('file-menu').contains(event.target) || $('file-menu-button').contains(event.target)) return
-  $('file-menu').hidden = true
-  $('file-menu-button').setAttribute('aria-expanded', 'false')
-})
+on('file-menu-button', showLibrary)
+
+let libraryEntries: LibraryEntry[] = []
+let inTrash = false
+let libraryBusy = false
+function folderHandle() { return session.directory instanceof BrowserDirectory ? session.directory.handle : null }
+async function libraryDirectory() {
+  const handle = folderHandle()
+  if (!handle) return null
+  if (!inTrash) return handle
+  try { return await handle.getDirectoryHandle('.papelera') }
+  catch (error) { if (error instanceof DOMException && error.name === 'NotFoundError') return null; throw error }
+}
+async function refreshLibrary() {
+  const handle = await libraryDirectory()
+  libraryEntries = handle ? await listMaps(handle) : []
+  drawLibrary()
+}
+function drawLibrary() {
+  $('library-home').setAttribute('aria-current', inTrash ? 'false' : 'page')
+  $('library-trash').setAttribute('aria-current', inTrash ? 'page' : 'false')
+  $('create-map').hidden = inTrash
+  const query = field('library-search').value.trim().toLocaleLowerCase('es')
+  const entries = libraryEntries.filter(entry => entry.data.nodeData.topic.toLocaleLowerCase('es').includes(query))
+  const cards = $('library-cards')
+  cards.replaceChildren()
+  for (const entry of entries) {
+    const card = document.createElement('article'); card.className = 'map-card'
+    const open = document.createElement('button'); open.type = 'button'; open.className = 'map-card-open'
+    open.setAttribute('aria-label', `${inTrash ? 'Restaurar' : 'Abrir'} ${entry.data.nodeData.topic}`)
+    const preview = document.createElement('div'); preview.className = 'map-preview'; preview.append(mapPreview(entry))
+    const info = document.createElement('div'); info.className = 'map-card-info'
+    const title = document.createElement('div'); title.className = 'map-card-title'; title.textContent = entry.data.nodeData.topic
+    const date = document.createElement('time')
+    date.textContent = new Intl.DateTimeFormat('sv-SE', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(settingsFrom(entry.data).updatedAt))
+    info.append(title, date); open.append(preview, info)
+    open.addEventListener('click', run(() => libraryAction(async () => {
+      const handle = folderHandle()
+      if (!handle) return
+      if (inTrash) {
+        const trash = await libraryDirectory()
+        if (trash) await moveMap(trash, handle, entry.fileName)
+        await refreshLibrary()
+      } else if (await session.connect(new BrowserDirectory(handle, entry.fileName))) showEditor()
+    })))
+    card.append(open)
+    if (!inTrash) {
+      const menu = document.createElement('details'); menu.className = 'map-card-menu'
+      const summary = document.createElement('summary'); summary.textContent = '···'; summary.setAttribute('aria-label', `Opciones de ${entry.data.nodeData.topic}`)
+      const remove = document.createElement('button'); remove.type = 'button'; remove.innerHTML = `${icon('trash')} Mover a la papelera`
+      remove.addEventListener('click', run(() => libraryAction(async () => {
+        const handle = folderHandle()
+        if (!handle) return
+        const trash = await handle.getDirectoryHandle('.papelera', { create: true })
+        await moveMap(handle, trash, entry.fileName)
+        await refreshLibrary()
+      })))
+      menu.append(summary, remove); card.append(menu)
+    }
+    cards.append(card)
+  }
+  $('library-empty').hidden = entries.length > 0
+  $('library-empty').textContent = query ? 'No se encontraron mapas.' : inTrash ? 'La papelera está vacía. Hacé clic en un mapa para restaurarlo.' : 'No hay mapas en esta carpeta.'
+}
+async function libraryAction(action: () => Promise<void>) {
+  if (libraryBusy) return
+  libraryBusy = true
+  try { await action() }
+  catch (error) { $('library-error').textContent = error instanceof Error ? error.message : 'No se pudo abrir la biblioteca.'; $('library-error').hidden = false }
+  finally { libraryBusy = false }
+}
+function showEditor() {
+  $('library').hidden = true
+  $('editor').hidden = false
+  requestAnimationFrame(() => { mind.toCenter(); mind.container.focus() })
+}
+async function showLibrary() {
+  if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+  await Promise.resolve()
+  await session.save()
+  // Stay in the editor if saving failed, so the pending map can be recovered.
+  if (session.dirty) return
+  $('search-panel').hidden = true
+  $('editor').hidden = true
+  $('library').hidden = false
+  inTrash = false
+  await libraryAction(refreshLibrary)
+}
+on('library-search', drawLibrary, 'input')
+on('library-home', () => libraryAction(async () => { inTrash = false; await refreshLibrary() }))
+on('library-trash', () => libraryAction(async () => { inTrash = true; await refreshLibrary() }))
+on('create-map', () => libraryAction(async () => {
+  const handle = folderHandle()
+  if (!handle) { if (!folderDialog.open) folderDialog.showModal(); return }
+  const directory = new BrowserDirectory(handle, null)
+  if (!await session.connect(directory)) return
+  // A new map gets a distinct root title, which also defines its filename.
+  const files = new Set((await listMaps(handle)).map(entry => entry.fileName.toLocaleLowerCase()))
+  let title = 'Nuevo Mapa Mental'; let n = 2
+  while (files.has(mapFileName(title).toLocaleLowerCase())) title = `Nuevo Mapa Mental ${n++}`
+  const data = newDocument(); data.nodeData.topic = title
+  await loadDocument(data)
+  session.changed()
+  await session.save()
+  if (!session.dirty) showEditor()
+}))
 
 const pickDirectory = (window as unknown as { showDirectoryPicker?: (options: { mode: 'readwrite'; id: string }) => Promise<WritableDirectoryHandle> }).showDirectoryPicker?.bind(window)
 // Native pickers must be called directly inside the click handler, not after async work.
@@ -438,7 +550,7 @@ async function chooseFolder() {
     if (error instanceof DOMException && error.name === 'AbortError') {
       $('folder-dialog-message').textContent = 'No se seleccionó una carpeta. Podés intentarlo nuevamente.'
     } else toast(error instanceof Error ? error.message : 'No se pudo seleccionar la carpeta.')
-  } finally { selectingFolder = false; $('file-menu').hidden = true; $('file-menu-button').setAttribute('aria-expanded', 'false') }
+  } finally { selectingFolder = false; if (!$('library').hidden) await refreshLibrary() }
 }
 function reconnectFolder() {
   if (!session.directory) return chooseFolder()
@@ -459,7 +571,6 @@ function showUnsupported() {
 // These handlers deliberately preserve native user activation.
 $('folder-start').addEventListener('click', () => { void chooseFolder() })
 $('choose-folder').addEventListener('click', () => { void chooseFolder() })
-$('reconnect-folder').addEventListener('click', reconnectFolder)
 $('connect-banner').addEventListener('click', () => {
   if (session.directory && session.state !== 'invalid') reconnectFolder()
   else void chooseFolder()
@@ -473,32 +584,34 @@ async function saveNow() {
   if (['permission', 'error'].includes(session.state)) { reconnectFolder(); return }
   await session.save()
 }
-on('save', saveNow)
-on('retry-save', saveNow)
 
 document.addEventListener('keydown', event => {
   const mod = event.ctrlKey || event.metaKey
   const key = event.key.toLowerCase()
   if (event.isComposing) return
   if (event.key === 'Escape') {
-    $('file-menu').hidden = true
-    $('file-menu-button').setAttribute('aria-expanded', 'false')
     $('search-panel').hidden = true
     $('search-button').setAttribute('aria-expanded', 'false')
   }
   if (folderDialog.open || shortcutsDialog.open) return
+  if (!$('library').hidden) {
+    if (mod && key === 'f') { event.preventDefault(); field('library-search').focus() }
+    if (mod && key === 's') event.preventDefault()
+    return
+  }
   if (mod && key === 's') { event.preventDefault(); event.stopPropagation(); void saveNow(); return }
   if (mod && key === 'f') { event.preventDefault(); event.stopPropagation(); openSearch(); return }
   const target = event.target as HTMLElement
-  const typing = !!target.closest('input, textarea, select, [contenteditable=true]')
+  const typing = !!target.closest('input, textarea, select, [contenteditable]:not([contenteditable=false])')
+  const editingMap = !!target.closest('#map #input-box')
+  if (mod && (key === 'z' || key === 'y') && (!typing || editingMap)) {
+    event.preventDefault(); event.stopPropagation()
+    changeHistory(key === 'y' || event.shiftKey)
+    return
+  }
   if (typing) return
   if (mod && event.key === '+') { event.preventDefault(); event.stopPropagation(); mind.scale(mind.scaleVal + .1); return }
   if (event.shiftKey && (event.key === '?' || event.code === 'Slash')) { event.preventDefault(); event.stopPropagation(); openShortcuts(); return }
-  if (mod && (key === 'z' || key === 'y')) {
-    event.preventDefault(); event.stopPropagation()
-    if (key === 'y' || event.shiftKey) mind.redo(); else mind.undo()
-    return
-  }
   // Map shortcuts on the background; Tab on buttons keeps normal focus navigation.
   if (target === document.body && $('outline').hidden && (['Tab', 'Enter', 'Delete', 'Backspace', 'F1', 'F2', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key) || (mod && ['+', '=', '-', '0'].includes(event.key)))) {
     if (!mind.currentNode && ['Tab', 'Enter'].includes(event.key)) mind.selectNode(mind.findEle(mind.nodeData.id))

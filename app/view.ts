@@ -13,27 +13,40 @@ const colorField = (id: string, label: string) => `<div class="field"><label for
 
 export function renderApp() {
   document.querySelector('#app')!.innerHTML = `
+  <main id="library" aria-label="Biblioteca de mapas" hidden>
+    <aside class="library-sidebar">
+      <nav aria-label="Biblioteca">
+        <button type="button" id="library-home" aria-current="page">${icon('home')} Biblioteca</button>
+        <button type="button">${icon('tag')} Etiquetas</button>
+        <button type="button" id="library-trash">${icon('trash')} Papelera de reciclaje</button>
+        <button type="button">${icon('settings')} Configuración</button>
+      </nav>
+      <div class="library-account">
+        <button type="button" id="choose-folder" aria-label="Seleccionar otra carpeta" title="Seleccionar otra carpeta">${icon('folder')}</button>
+        <button type="button" class="library-user" aria-label="Usuario">${icon('user')}</button>
+      </div>
+    </aside>
+    <section class="library-content">
+      <div class="library-toolbar"><div class="library-search">${icon('search')}<input id="library-search" type="search" aria-label="Buscar en mapas mentales" placeholder="Buscar en mapa mental…"/></div>
+        <button type="button" id="create-map">${icon('add')} Crear nuevo</button>
+      </div>
+      <p id="library-error" role="alert" hidden></p>
+      <div id="library-cards"></div>
+      <p id="library-empty" hidden>No hay mapas en esta carpeta.</p>
+    </section>
+  </main>
   <main id="editor" aria-label="Editor de mapas mentales">
     <section id="stage" aria-label="Área de trabajo">
       <div id="map" aria-label="Mapa mental"></div>
       <div id="outline" aria-label="Esquema del mapa" hidden></div>
       <nav class="topbar" aria-label="Archivo e historial">
-        ${iconButton('file-menu-button', 'Menú de archivo', 'back', 'aria-expanded="false" aria-controls="file-menu"')}
-        ${iconButton('save', 'Guardar (Ctrl + S)', 'save')}
+        ${iconButton('file-menu-button', 'Volver a la biblioteca', 'back')}
         ${iconButton('undo', 'Deshacer (Ctrl + Z)', 'undo', 'disabled')}
         ${iconButton('redo', 'Rehacer (Ctrl + Y)', 'redo', 'disabled')}
       </nav>
-      <div id="file-menu" class="popover file-menu" hidden>
-        <div class="menu-title">Archivo</div>
-        <p id="folder-name">Sin carpeta seleccionada</p>
-        <button type="button" id="choose-folder">${icon('folder')} Seleccionar otra carpeta</button>
-        <button type="button" id="reconnect-folder">${icon('link')} Reconectar carpeta</button>
-        <button type="button" id="retry-save">${icon('save')} Guardar ahora</button>
-        <div class="menu-foot">mapa-mental.json · Guardado local</div>
-      </div>
-      <div id="save-status" role="status" aria-live="polite">Seleccioná una carpeta para guardar</div>
       <div id="connection-banner" hidden><span id="connection-message"></span><button type="button" id="connect-banner">Seleccionar carpeta</button></div>
       <nav class="tool-rail" aria-label="Herramientas del mapa">
+        ${iconButton('hand', 'Mover pizarra (mano)', 'hand', 'aria-pressed="false"')}
         ${iconButton('fullscreen', 'Pantalla completa', 'full')}
         ${iconButton('center', 'Centrar mapa (F1)', 'center')}
         ${iconButton('zoom-out', 'Alejar', 'minus')}
@@ -99,7 +112,7 @@ export function renderApp() {
   <dialog id="folder-dialog" aria-labelledby="folder-title">
     ${iconButton('folder-close', 'Cerrar selector de carpeta', 'close')}
     <div class="folder-art">${icon('folder')}</div><h1 id="folder-title">Tu mapa, en tu carpeta</h1>
-    <p>Elegí dónde guardar <strong>mapa-mental.json</strong>. Tus cambios se guardarán automáticamente y volveremos a abrirlo en tu próxima visita.</p>
+    <p>Elegí una carpeta para tus mapas. Cada archivo tomará el nombre de su nodo raíz y los cambios se guardarán automáticamente.</p>
     <p id="folder-dialog-message" class="hint">El archivo permanece en tu PC.</p>
     <button type="button" id="folder-start" class="primary-button">${icon('folder')} Seleccionar carpeta</button>
   </dialog>

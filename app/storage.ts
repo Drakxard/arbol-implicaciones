@@ -2,6 +2,22 @@ import { newDocument, parseDocument } from './document'
 import type { MindElixirData } from 'mind-elixir'
 
 export const FILE_NAME = 'mapa-mental.json'
+export function mapFileName(topic: string) {
+  const name = topic.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').trim().replace(/[. ]+$/, '') || 'Sin título'
+  return `${/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name) ? '_' : ''}${name.slice(0, 180)}.json`
+}
+export interface LibraryEntry { fileName: string; data: MindElixirData }
+export async function listMaps(handle: FileSystemDirectoryHandle): Promise<LibraryEntry[]> {
+  const entries: LibraryEntry[] = []
+  const files = (handle as unknown as { values(): AsyncIterableIterator<FileSystemHandle> }).values()
+  for await (const file of files) {
+    if (file.kind !== 'file' || !file.name.endsWith('.json')) continue
+    const text = await (await (file as FileSystemFileHandle).getFile()).text()
+    try { entries.push({ fileName: file.name, data: parseDocument(text) }) } catch { /* Other JSON files aren't maps. */ }
+  }
+  return entries.sort((a, b) => settingsDate(b.data).localeCompare(settingsDate(a.data)))
+}
+function settingsDate(data: MindElixirData): string { return data.meta?.editor?.updatedAt ?? '' }
 export interface DirectoryPort {
   name: string
   queryPermission(): Promise<PermissionState>
@@ -104,16 +120,22 @@ export interface WritableDirectoryHandle extends FileSystemDirectoryHandle {
 export class BrowserDirectory implements DirectoryPort {
   // A first write may create the handle before createWritable fails. Only this
   // session's own empty placeholder can be retried as a missing document.
-  private pendingCreation = false
-  constructor(public handle: WritableDirectoryHandle) {}
+  private pendingCreation: string | null = null
+  constructor(public handle: WritableDirectoryHandle, public fileName: string | null | undefined = undefined) {}
   get name() { return this.handle.name }
   queryPermission() { return this.handle.queryPermission({ mode: 'readwrite' }) }
   requestPermission() { return this.handle.requestPermission({ mode: 'readwrite' }) }
   async read() {
+    if (this.fileName === undefined) {
+      // Keep opening legacy files, but name every future write after the root.
+      const maps = await listMaps(this.handle)
+      this.fileName = maps[0]?.fileName ?? FILE_NAME
+    }
+    if (this.fileName === null) return null
     try {
-      const file = await (await this.handle.getFileHandle(FILE_NAME)).getFile()
+      const file = await (await this.handle.getFileHandle(this.fileName)).getFile()
       const text = await file.text()
-      return this.pendingCreation && text === '' ? null : text
+      return this.pendingCreation === this.fileName && text === '' ? null : text
     } catch (error) {
       if (error instanceof DOMException && error.name === 'NotFoundError') {
         // Distinguish a missing map from a removed directory.
@@ -127,16 +149,35 @@ export class BrowserDirectory implements DirectoryPort {
     }
   }
   async write(text: string) {
+    const data = parseDocument(text)
+    const target = mapFileName(data.nodeData.topic)
+    const previous = this.fileName
     let file: FileSystemFileHandle
-    try { file = await this.handle.getFileHandle(FILE_NAME) }
+    try {
+      file = await this.handle.getFileHandle(target)
+      const existing = await (await file.getFile()).text()
+      if (!(this.pendingCreation === target && existing === '') && parseDocument(existing).nodeData.id !== data.nodeData.id) {
+        throw new Error(`Ya existe «${target}». Cambiá el nombre del nodo raíz para guardar sin reemplazar otro mapa.`)
+      }
+    }
     catch (error) {
       if (!(error instanceof DOMException) || error.name !== 'NotFoundError') throw error
-      file = await this.handle.getFileHandle(FILE_NAME, { create: true })
-      this.pendingCreation = true
+      file = await this.handle.getFileHandle(target, { create: true })
+      this.pendingCreation = target
     }
     const stream = await file.createWritable()
-    try { await stream.write(text); await stream.close(); this.pendingCreation = false }
+    try { await stream.write(text); await stream.close(); this.pendingCreation = null }
     catch (error) { await stream.abort().catch(() => {}); throw error }
+    this.fileName = target
+    if (previous && previous !== target) {
+      // Only remove our own prior version, after the replacement is durable.
+      try {
+        const oldFile = await this.handle.getFileHandle(previous)
+        const old = parseDocument(await (await oldFile.getFile()).text())
+        // Windows may resolve two spellings of the same filename to one file.
+        if (old.nodeData.id === data.nodeData.id && !await oldFile.isSameEntry(file)) await this.handle.removeEntry(previous)
+      } catch (error) { if (!(error instanceof DOMException) || error.name !== 'NotFoundError') throw error }
+    }
   }
 }
 

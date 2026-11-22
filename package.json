@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "description": "Editor local de mapas mentales basado en Mind Elixir",
-  "engines": { "node": ">=22.12.0" },
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "dev:app": "vite --host 127.0.0.1",
@@ -14,9 +16,15 @@
     "test": "node --import tsx --test tests/*.test.ts",
     "test:e2e": "playwright test"
   },
-  "dependencies": { "mind-elixir": "6.0.3" },
+  "dependencies": {
+    "dompurify": "^3.4.18",
+    "katex": "^0.19.1",
+    "marked": "^18.2.1",
+    "mind-elixir": "6.0.3"
+  },
   "devDependencies": {
     "@playwright/test": "1.62.1",
+    "@types/katex": "^0.16.8",
     "@types/node": "^24.5.2",
     "tsx": "^4.23.15",
     "typescript": "~5.9.3",

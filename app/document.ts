@@ -48,7 +48,7 @@ export function safeImage(value: string): boolean {
 
 export function parseDocument(text: string): MindElixirData {
   let data: MindElixirData
-  try { data = JSON.parse(text) } catch { throw new Error('mapa-mental.json no contiene JSON válido. No se sobrescribirá.') }
+  try { data = JSON.parse(text) } catch { throw new Error('El archivo no contiene JSON válido. No se sobrescribirá.') }
   const invalid = () => { throw new Error('El archivo contiene un mapa inválido. No se sobrescribirá.') }
   if (!data || typeof data !== 'object' || !data.nodeData) invalid()
   const nodes = new Map<string, NodeObj>()
