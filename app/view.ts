@@ -3,6 +3,8 @@ import { icon, iconButton } from './icons'
 export const emojis = ['⭐', '✅', '❌', '⚠️', '📝', '💡', '📌', '🔍', '🔥', '🗓️', '⌛', '🔒', '🚀', '🌟', '🛠️', '📚', '🎯', '🖍️', '💬', '🌍', '🎨', '❤️', '🔄', '🎉']
 export const shortcuts = [
   ['Activar / salir del recorrido', '*'], ['Avanzar / retroceder en el recorrido', '↓ / ↑'],
+  ['Acotar / ampliar encuadre por nivel en el recorrido', '→ / ←'],
+  ['Enviar instrucción a Groq durante el recorrido', 'Ctrl + Enter'],
   ['Añadir nodo hijo', 'Tab'], ['Añadir nodo padre', 'Ctrl + Enter'], ['Añadir nodo hermano', 'Enter'],
   ['Eliminar', 'Delete'], ['Mover arriba', 'Alt + ↑'], ['Mover abajo', 'Alt + ↓'],
   ['Mostrar lateral', 'Ctrl + ↑'], ['Mostrar izquierda', 'Ctrl + ←'], ['Mostrar derecha', 'Ctrl + →'], ['Guardar', 'Ctrl + S'],
@@ -20,7 +22,7 @@ export function renderApp() {
         <button type="button" id="library-home" aria-current="page">${icon('home')} Biblioteca</button>
         <button type="button">${icon('tag')} Etiquetas</button>
         <button type="button" id="library-trash">${icon('trash')} Papelera de reciclaje</button>
-        <button type="button">${icon('settings')} Configuración</button>
+        <button type="button" id="library-settings">${icon('settings')} Configuración</button>
       </nav>
       <div class="library-account">
         <button type="button" id="choose-folder" aria-label="Seleccionar otra carpeta" title="Seleccionar otra carpeta">${icon('folder')}</button>
@@ -56,14 +58,14 @@ export function renderApp() {
     <section id="stage" aria-label="Área de trabajo">
       <div id="map" aria-label="Mapa mental"></div>
       <div id="walk-map" aria-label="Recorrido del árbol" hidden></div>
-      <nav id="walk-controls" aria-label="Recorrido del árbol" hidden>
-        <span>Recorrido</span>
-        <button type="button" id="walk-prev" aria-label="Paso anterior (↑)">↑</button>
-        <output id="walk-status" aria-live="polite"></output>
-        <button type="button" id="walk-next" aria-label="Paso siguiente (↓)">↓</button>
-        ${iconButton('walk-focus', 'Acercar al padre y la hoja activa', 'focus', 'aria-pressed="false"')}
-        ${iconButton('walk-close', 'Salir del recorrido (*)', 'close')}
-      </nav>
+      <output id="walk-status" class="sr-only" aria-live="polite"></output>
+      <section id="ai-composer" aria-label="Instrucción para ampliar el nodo" hidden>
+        <textarea id="ai-prompt" rows="1" aria-label="Instrucción para Groq" spellcheck="true"></textarea>
+        <div class="composer-format">
+          <button type="button" id="ai-bullets" aria-label="Aplicar viñetas" title="Viñetas">${icon('bullets')}</button>
+          <button type="button" id="ai-numbers" aria-label="Aplicar numeración" title="Numeración">${icon('numbered')}</button>
+        </div>
+      </section>
       <div id="outline" aria-label="Esquema del mapa" hidden></div>
       <nav class="topbar" aria-label="Archivo e historial">
         ${iconButton('file-menu-button', 'Volver a la biblioteca', 'back')}
@@ -144,6 +146,19 @@ export function renderApp() {
       </div>
     </aside>
   </main>
+  <dialog id="groq-dialog" aria-labelledby="groq-title">
+    ${iconButton('groq-close', 'Cerrar configuración', 'close')}
+    <h2 id="groq-title">Configuración</h2>
+    <p>Groq · GPT-OSS 20B</p>
+    <form id="groq-form">
+      <label for="groq-key">Clave de Groq</label>
+      <input type="password" id="groq-key" autocomplete="off" spellcheck="false" placeholder="gsk_…"/>
+      <p class="hint">Se guarda cifrada en este navegador. Al enviar un pedido se comparten con Groq el texto de la raíz, el camino y los nodos iluminados.</p>
+      <label class="groq-toggle"><input type="checkbox" id="groq-enabled" checked/> Activar generación durante el recorrido</label>
+      <p id="groq-error" role="alert"></p>
+      <div class="dialog-actions"><button type="button" id="groq-forget">Olvidar clave</button><button type="submit" id="groq-save">Guardar</button></div>
+    </form>
+  </dialog>
   <dialog id="folder-dialog" aria-labelledby="folder-title">
     ${iconButton('folder-close', 'Cerrar selector de carpeta', 'close')}
     <div class="folder-art">${icon('folder')}</div><h1 id="folder-title">Tu mapa, en tu carpeta</h1>

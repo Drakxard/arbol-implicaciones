@@ -1,6 +1,6 @@
 import MindElixir, { Outliner, type MindElixirData, type NodeObj, type Theme } from 'mind-elixir'
 import { es } from 'mind-elixir/i18n'
-import { defaultSettings, newDocument, settingsFrom, safeLink, safeImage, type EditorSettings } from './document'
+import { defaultSettings, newDocument, settingsFrom, safeLink, safeImage, parseDocument, type EditorSettings } from './document'
 import { BrowserDirectory, FolderSession, rememberDirectory, rememberedDirectory, type WritableDirectoryHandle, type SaveState, listMaps, mapFileName, type LibraryEntry } from './storage'
 import { renderApp, emojis } from './view'
 import { mapPreview, moveMap, copyMap, directoryAt, listFolders, createLibraryFolder, trashMap, listTrash, restoreMap, deleteTrashedMap, type TrashedMap } from './library'
@@ -8,6 +8,9 @@ import { icon } from './icons'
 import { renderMarkdown } from './markdown'
 import { installCanvasPan } from './pan'
 import { installNavigation } from './navigation'
+import { installAI } from './ai'
+import { installGroqSettings } from './groq-settings'
+import { nodePath } from './ai-context'
 import { themeFor, textColor, styleDescendants } from './appearance'
 import { readTextDefaults, writeTextDefaults, withTextDefaults, type TextDefaults } from './defaults'
 import './style.css'
@@ -25,11 +28,11 @@ let imageRatioLocked = true
 let selectingFolder = false
 let toastTimer: ReturnType<typeof setTimeout>
 
-function toast(text: string) {
+function toast(text: string, duration = 6000) {
   $('toast').textContent = text
   $('toast').hidden = false
   clearTimeout(toastTimer)
-  toastTimer = setTimeout(() => { $('toast').hidden = true }, 6000)
+  toastTimer = setTimeout(() => { $('toast').hidden = true }, duration)
 }
 function run(action: () => unknown | Promise<unknown>) {
   return () => { Promise.resolve().then(action).catch(error => toast(error instanceof Error ? error.message : 'No se pudo completar la acción.')) }
@@ -43,9 +46,39 @@ const initError = await mind.init(newDocument())
 if (initError) throw initError
 installCanvasPan(mind, $<HTMLButtonElement>('hand'), finishMapEdit)
 const navigation = installNavigation(mind, () => !loading && !$('map').inert && $('outline').hidden
-  && $('library').hidden && !document.querySelector('dialog[open]') && !mind.container.querySelector('#input-box'), () => settings)
+  && $('library').hidden && !document.querySelector('dialog[open]') && !mind.container.querySelector('#input-box'), () => settings, editWalkTopic, message => toast(message, 3000))
+const ai = installAI(navigation, snapshot, applyTreeChange, message => toast(message, 3000))
+installGroqSettings()
+
+function restoreTree(data: MindElixirData) {
+  mind.clearSelection(); selectedId = ''
+  mind.refresh(data)
+  mind.meta = data.meta
+  applyAppearance()
+  refreshInspector(); updateSearch()
+}
+mind.historyStack!.register('tree-change', (entry, direction) => {
+  restoreTree(structuredClone(direction === 'undo' ? entry.before : entry.after))
+  navigation.sync()
+})
+function applyTreeChange(data: MindElixirData, preferredLeaf?: string) {
+  if (!mind.editable || $('map').inert) throw new Error('El mapa no está disponible para editar.')
+  const checked = parseDocument(JSON.stringify(data))
+  const before = snapshot()
+  restoreTree(checked)
+  mind.historyStack!.push('tree-change', before, snapshot())
+  navigation.sync(preferredLeaf)
+}
+function editWalkTopic(id: string, topic: string) {
+  const data = snapshot()
+  const node = nodePath(data.nodeData, id).at(-1)
+  if (!node) throw new Error('El nodo ya no existe.')
+  node.topic = topic
+  applyTreeChange(data)
+}
 
 function finishMapEdit() {
+  navigation.finishEdit()
   // Close the live editor before history removes or replaces its host node.
   for (const editor of mind.container.querySelectorAll<HTMLElement>('#input-box')) {
     editor.blur()
@@ -57,7 +90,7 @@ function finishMapEdit() {
 function changeHistory(redo = false) {
   finishMapEdit()
   if (redo) mind.redo(); else mind.undo()
-  if ($('outline').hidden) mind.container.focus({ preventScroll: true })
+  if ($('outline').hidden) navigation.canvas.container.focus({ preventScroll: true })
 }
 
 function snapshot(): MindElixirData {
@@ -73,6 +106,7 @@ function snapshot(): MindElixirData {
 
 async function loadDocument(data: MindElixirData) {
   navigation.stop()
+  ai.reset()
   loading = true
   try {
     if (!$('library').hidden) showEditor()
@@ -98,7 +132,8 @@ function updateSaveState(state: SaveState, detail: string) {
   // Never allow editing a placeholder for a remembered file we could not read.
   const blocked = state === 'loading' || (!!session.directory && !session.hasLoadedDirectory)
   if (blocked) mind.disableEdit(); else mind.enableEdit()
-  for (const id of ['map', 'outline', 'global-panel', 'node-panel']) $(id).inert = blocked
+  for (const id of ['map', 'outline']) $(id).inert = blocked
+  for (const id of ['global-panel', 'node-panel']) $(id).inert = blocked || navigation.active
   const needsAction = ['permission', 'error', 'invalid', 'disconnected'].includes(state)
   $('connection-banner').hidden = !needsAction || folderDialog.open
   $('library-error').hidden = !needsAction || folderDialog.open
@@ -163,7 +198,7 @@ mind.historyStack!.subscribe(() => {
   $<HTMLButtonElement>('undo').disabled = !mind.historyStack!.canUndo
   $<HTMLButtonElement>('redo').disabled = !mind.historyStack!.canRedo
   markChanged()
-  queueMicrotask(() => { refreshInspector(); updateSearch() })
+  queueMicrotask(() => { refreshInspector(); updateSearch(); navigation.sync() })
 })
 
 function setValue(id: string, value: string) {
@@ -880,6 +915,11 @@ document.addEventListener('keydown', event => {
   const target = event.target as HTMLElement
   const typing = !!target.closest('input, textarea, select, [contenteditable]:not([contenteditable=false])')
   const editingMap = !!target.closest('#map #input-box')
+  if (ai.key(event)) { event.preventDefault(); event.stopImmediatePropagation(); return }
+  if (target.closest('#walk-node-editor')) return
+  if (!typing && navigation.active && mod && (key === 'z' || key === 'y')) {
+    event.preventDefault(); event.stopImmediatePropagation(); changeHistory(key === 'y' || event.shiftKey); return
+  }
   if (!typing && !mod && !event.altKey && event.key === '*') {
     event.preventDefault(); event.stopImmediatePropagation()
     if (!event.repeat) navigation.toggle()

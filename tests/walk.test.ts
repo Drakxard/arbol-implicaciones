@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { NodeObj } from 'mind-elixir'
-import { walkSteps, walkTree, walkHighlight } from '../app/walk'
+import { walkSteps, walkTree, walkHighlight, walkFrame } from '../app/walk'
 
 const node = (id: string, children?: NodeObj[]): NodeObj => ({ id, topic: id, children })
 const tree = () => node('root', [node('purple', [node('p1'), node('p2')]),
@@ -72,4 +72,26 @@ test('ilumina el grupo local y las conexiones hasta la raíz, sin incluir otras 
   assert.ok(!previous.edges.has('blue'))
   const only = node('only')
   assert.equal(walkHighlight(only, walkSteps(only)[0], false).edges.size, 0)
+})
+
+test('el encuadre desciende por antepasados hasta el padre de la hoja y vuelve a la raíz', () => {
+  const root = tree()
+  const step = walkSteps(root).at(-1)!
+  const before = JSON.stringify(root)
+  const expected = [
+    ['root', 'blue', 'b2', 'c1', 'c2'], ['blue', 'b2', 'c1', 'c2'], ['b2', 'c1', 'c2'],
+  ]
+  for (const depth of [0, 1, 2, 1, 0]) {
+    const camera = walkFrame(root, step, depth, false)
+    assert.deepEqual([...camera.ids], expected[depth])
+    assert.equal(camera.maxDepth, 2)
+    assert.equal(camera.rootId, expected[depth][0])
+  }
+  assert.equal(walkFrame(root, step, 99, false).depth, 2)
+  assert.equal(walkFrame(root, step, -1, false).depth, 0)
+  assert.deepEqual([...walkFrame(root, step, 1, true).ids], ['blue', 'b2', 'c2'])
+  assert.equal(walkFrame(root, walkSteps(root)[0], 2, false).depth, 1)
+  const only = node('only')
+  assert.deepEqual([...walkFrame(only, walkSteps(only)[0], 1, false).ids], ['only'])
+  assert.equal(JSON.stringify(root), before)
 })

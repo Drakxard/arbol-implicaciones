@@ -1,4 +1,6 @@
 const paths: Record<string, string> = {
+  bullets: '<circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/><path d="M9 6h12M9 12h12M9 18h12"/>',
+  numbered: '<path d="M3 3h1v6M2 9h4M2 14c3-2 5 0 2 2l-2 3h4M10 6h11M10 12h11M10 18h11"/>',
   focus: '<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2"/><path d="M12 2v4m0 12v4M2 12h4m12 0h4"/>',
   walk: '<path d="M4 4h7v16H4m7-8h9M4 4h.01M4 20h.01"/><circle cx="20" cy="12" r="2"/>',
   hand: '<path d="M8 13V6a2 2 0 0 1 4 0v6-8a2 2 0 0 1 4 0v8-6a2 2 0 0 1 4 0v9c0 4-3 7-7 7h-1c-2 0-4-1-5-3l-4-6a2 2 0 0 1 3-2l2 2Z"/>',

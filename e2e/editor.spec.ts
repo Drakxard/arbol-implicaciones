@@ -27,8 +27,11 @@ async function fileSystem(page: Page, initial: string | null = null) {
 }
 async function connect(page: Page) {
   await page.goto('/')
-  await page.getByRole('button', { name: 'Seleccionar carpeta', exact: true }).click()
+  await expect(page.locator('#folder-dialog')).toBeVisible()
+  await page.locator('#folder-start').click()
   await expect(page.getByRole('dialog', { name: 'Tu mapa, en tu carpeta' })).not.toBeVisible()
+  await expect(page.locator('#editor')).not.toHaveAttribute('data-save-state', 'loading')
+  if (await page.locator('#editor').getAttribute('data-save-state') === 'saved') await expect(page.locator('#map')).not.toHaveAttribute('inert', '')
 }
 async function readFile(page: Page) {
   return page.evaluate(async () => {
@@ -46,6 +49,204 @@ async function readFile(page: Page) {
   })
 }
 async function root(page: Page) { return page.locator('.me-root > .me-tpc') }
+
+const aiCredential = `v1.${'x'.repeat(80)}`
+const aiDocument = { direction: 1, nodeData: { id: 'root', topic: 'Tema', children: [
+  { id: 'branch', topic: 'Estudio', children: [{ id: 'one', topic: '$P(A)$' }, { id: 'two', topic: 'Segundo concepto' }] },
+  { id: 'hidden', topic: 'Rama privada', note: 'No compartir', children: [{ id: 'hidden-leaf', topic: 'Oculto' }] },
+] } }
+const aiResponse = { children: [{ topic: '**Ejemplo**', children: [{ topic: '$$x = \\frac{1}{2}$$', children: [] }] }] }
+async function aiSetup(page: Page, configured = true) {
+  await fileSystem(page, JSON.stringify(aiDocument))
+  if (configured) await page.addInitScript(credential => localStorage.setItem('arbol.groq.v1', JSON.stringify({ credential, enabled: true })), aiCredential)
+  await connect(page)
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+}
+
+test('Groq configura credencial cifrada en biblioteca, permite desactivar y olvidar', async ({ page }) => {
+  const apiKey = 'gsk_ui_test_1234567890'
+  await aiSetup(page, false)
+  await page.route('**/api/groq/configure', async route => {
+    expect(route.request().postDataJSON()).toEqual({ apiKey })
+    await route.fulfill({ json: { credential: aiCredential, model: 'openai/gpt-oss-20b' } })
+  })
+  await page.getByRole('button', { name: 'Volver a la biblioteca' }).click()
+  await page.locator('#library-settings').click()
+  await page.getByLabel('Clave de Groq', { exact: true }).fill(apiKey)
+  await page.locator('#groq-save').click()
+  await expect(page.locator('#groq-dialog')).toBeHidden()
+  const stored = await page.evaluate(() => localStorage.getItem('arbol.groq.v1'))
+  expect(stored).toContain(aiCredential)
+  expect(stored).not.toContain(apiKey)
+  await page.locator('#library-settings').click()
+  await expect(page.locator('#groq-key')).toHaveValue('')
+  await page.locator('#groq-enabled').uncheck(); await page.locator('#groq-save').click()
+  await page.locator('.map-card-open').first().click()
+  await page.keyboard.press('*'); await page.keyboard.press('a')
+  await expect(page.locator('#ai-composer')).toBeHidden()
+  await page.keyboard.press('*')
+  await page.getByRole('button', { name: 'Volver a la biblioteca' }).click()
+  await page.locator('#library-settings').click(); await page.locator('#groq-forget').click()
+  expect(await page.evaluate(() => localStorage.getItem('arbol.groq.v1'))).toBeNull()
+})
+
+test('Groq escribe globalmente, genera KaTeX, entra en la rama y deshace en una sola acción', async ({ page }) => {
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message))
+  await aiSetup(page)
+  let calls = 0
+  await page.route('**/api/groq/branch', async route => {
+    calls++
+    const body = route.request().postDataJSON()
+    expect(body.context.root.topic).toBe('Tema')
+    expect(body.context.path.map((node: { id: string }) => node.id)).toEqual(['root', 'branch', 'one'])
+    expect(body.context.target.topic).toBe('$P(A)$')
+    expect(body.context.illuminated.map((node: { id: string }) => node.id)).toEqual(['root', 'branch', 'one'])
+    expect(JSON.stringify(body)).not.toContain('No compartir')
+    expect(body.instruction).toBe('Ejemplificar\n- usa KaTeX')
+    await route.fulfill({ json: aiResponse })
+  })
+  await page.keyboard.press('*')
+  await expect(page.locator('#walk-controls')).toHaveCount(0)
+  await page.keyboard.press('E')
+  await expect(page.locator('#ai-prompt')).toHaveValue('E')
+  await page.keyboard.type('jemplificar')
+  await page.keyboard.press('Enter')
+  await page.locator('#ai-bullets').click()
+  await page.keyboard.type('usa KaTeX')
+  await expect(page.locator('#ai-prompt')).toHaveValue('Ejemplificar\n- usa KaTeX')
+  await expect.poll(async () => {
+    const top = (await page.locator('#ai-composer').boundingBox())!.y
+    const bottom = await page.locator('#walk-map .walk-local').evaluateAll(nodes => Math.max(...nodes.map(node => node.getBoundingClientRect().bottom)))
+    return bottom < top
+  }).toBe(true)
+  await page.screenshot({ path: '.cache/groq-composer.png' })
+  await page.keyboard.press('Control+Enter')
+  await expect(page.locator('#walk-map .walk-current .katex')).toBeVisible()
+  await expect(page.locator('#ai-composer')).toBeHidden()
+  await expect(page.locator('#editor')).toHaveAttribute('data-save-state', 'saved')
+  await expect(page.locator('#global-panel')).toHaveAttribute('inert', '')
+  const saved = await readFile(page)
+  expect(saved.nodeData.children[0].children[0].children[0].topic).toBe('**Ejemplo**')
+  expect(JSON.stringify(saved)).not.toContain(aiCredential)
+  expect(calls).toBe(1)
+  await page.screenshot({ path: '.cache/groq-branch.png' })
+  await page.keyboard.press('Control+z')
+  await expect(page.locator('#walk-map .me-tpc')).toHaveCount(6)
+  await expect(page.locator('#walk-map .walk-current')).toHaveText('P(A)P(A)P(A)')
+  await page.keyboard.press('Control+y')
+  await expect(page.locator('#walk-map .me-tpc')).toHaveCount(8)
+  await page.keyboard.press('F2')
+  await expect(page.locator('#walk-node-editor')).toBeVisible()
+  await page.locator('#walk-node-editor').fill('Corrección manual con $x=3$')
+  await page.keyboard.press('Enter')
+  await expect(page.locator('#walk-map .walk-current')).toContainText('Corrección manual')
+  await page.keyboard.press('Control+z')
+  await expect(page.locator('#walk-map .walk-current')).not.toContainText('Corrección manual')
+  expect(errors).toEqual([])
+})
+
+test('Groq conserva posición y borrador nuevo, evita duplicados y espera la edición manual', async ({ page }) => {
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message))
+  await aiSetup(page)
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  let calls = 0
+  await page.route('**/api/groq/branch', async route => { calls++; await gate; await route.fulfill({ json: aiResponse }) })
+  await page.keyboard.press('*'); await page.keyboard.type('Ampliar')
+  await page.keyboard.press('Control+Enter'); await page.keyboard.press('Control+Enter')
+  await expect.poll(() => calls).toBe(1)
+  await page.locator('#ai-prompt').fill('Borrador siguiente')
+  await page.keyboard.press('Escape'); await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('F2')
+  await page.locator('#walk-node-editor').fill('Segundo concepto editado')
+  release()
+  await expect(page.locator('#walk-node-editor')).toBeVisible()
+  await expect(page.locator('#walk-map .me-tpc')).toHaveCount(6)
+  await page.keyboard.press('Enter')
+  await expect(page.locator('#walk-map .me-tpc')).toHaveCount(8)
+  await expect(page.locator('#walk-map')).toHaveAttribute('data-target', 'two')
+  await expect(page.locator('#walk-map .walk-current')).toHaveText('Segundo concepto editado')
+  await expect(page.locator('#ai-prompt')).toHaveValue('Borrador siguiente')
+  expect(calls).toBe(1)
+  expect(errors).toEqual([])
+})
+
+test('Groq permite ramificar un antepasado iluminado y rechaza resultados tardíos al salir', async ({ page }) => {
+  await aiSetup(page)
+  let release!: () => void
+  let target = ''
+  const gate = new Promise<void>(resolve => { release = resolve })
+  await page.route('**/api/groq/branch', async route => {
+    target = route.request().postDataJSON().context.target.id
+    await gate
+    try { await route.fulfill({ json: aiResponse }) } catch { /* Browser cancelled the request. */ }
+  })
+  await page.keyboard.press('*')
+  await page.locator('#walk-map [data-nodeid="mebranch"]').click()
+  await expect(page.locator('#walk-map .selected')).toHaveCount(0)
+  await page.keyboard.type('Otra explicación'); await page.keyboard.press('Control+Enter')
+  await expect.poll(() => target).toBe('branch')
+  await page.keyboard.press('Escape'); await page.keyboard.press('*')
+  release()
+  await expect(page.locator('#walk-map')).toBeHidden()
+  await page.keyboard.press('Control+s')
+  expect((await readFile(page)).nodeData.children[0].children).toHaveLength(2)
+})
+
+test('Groq rechaza destino editado durante la consulta y conserva el texto cuando hay errores', async ({ page }) => {
+  await aiSetup(page)
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  await page.route('**/api/groq/branch', async route => { await gate; await route.fulfill({ json: aiResponse }) })
+  await page.keyboard.press('*'); await page.keyboard.type('Ejemplificar')
+  await page.keyboard.press('Control+Enter')
+  await expect(page.locator('#ai-composer')).toHaveAttribute('aria-busy', 'true')
+  await page.keyboard.press('Escape'); await page.keyboard.press('F2')
+  await page.locator('#walk-node-editor').fill('Destino cambiado'); await page.keyboard.press('Enter')
+  release()
+  await expect(page.locator('#toast')).toContainText('El nodo cambió')
+  await expect(page.locator('#ai-prompt')).toHaveValue('Ejemplificar')
+  await expect(page.locator('#walk-map .me-tpc')).toHaveCount(6)
+  await page.unroute('**/api/groq/branch')
+  await page.route('**/api/groq/branch', route => route.fulfill({ status: 429, json: { error: 'Límite de Groq' } }))
+  await page.locator('#ai-prompt').focus(); await page.keyboard.press('Control+Enter')
+  await expect(page.locator('#toast')).toHaveText('Límite de Groq')
+  await expect(page.locator('#ai-prompt')).toHaveValue('Ejemplificar')
+  await expect(page.locator('#toast')).toBeHidden({ timeout: 4500 })
+})
+
+test('Groq respeta composición, listas y undo de texto, y descarta JSON incompleto', async ({ page }) => {
+  await aiSetup(page)
+  let calls = 0
+  await page.route('**/api/groq/branch', async route => { calls++; await route.fulfill({ json: { children: [{ topic: 'Incompleto' }] } }) })
+  await page.keyboard.press('*'); await page.keyboard.type('Ejemplo')
+  const input = page.locator('#ai-prompt')
+  await input.dispatchEvent('compositionstart')
+  await input.dispatchEvent('keydown', { key: 'Enter', ctrlKey: true, isComposing: true, keyCode: 229, bubbles: true })
+  expect(calls).toBe(0)
+  await input.dispatchEvent('compositionend')
+  await page.locator('#ai-numbers').click()
+  await expect(input).toHaveValue('1. Ejemplo')
+  await page.keyboard.press('Enter'); await page.keyboard.type('Otro')
+  await expect(input).toHaveValue('1. Ejemplo\n2. Otro')
+  await page.keyboard.type('X'); await page.keyboard.press('Control+z')
+  await expect(page.locator('#walk-map .me-tpc')).toHaveCount(6)
+  await input.fill('Pedido de prueba')
+  await page.keyboard.press('Control+Enter')
+  await expect(page.locator('#toast')).toContainText('incompleta')
+  await expect(input).toHaveValue('Pedido de prueba')
+  await expect(page.locator('#walk-map .me-tpc')).toHaveCount(6)
+  expect(calls).toBe(1)
+})
+
+test('Groq adaptador local devuelve errores JSON sin invocar al proveedor con claves inválidas', async ({ page }) => {
+  const response = await page.request.post('/api/groq/configure', { data: { apiKey: 'invalid' } })
+  expect([400, 503]).toContain(response.status())
+  expect(response.headers()['cache-control']).toBe('no-store')
+  expect((await response.json()).error).toBeTruthy()
+  const crossOrigin = await page.request.post('/api/groq/branch', { headers: { Origin: 'https://untrusted.example' }, data: {} })
+  expect(crossOrigin.status()).toBe(403)
+})
 
 test('recorrido mantiene el árbol desvanecido y el camino a la raíz al cambiar el grupo local', async ({ page }) => {
   const errors: string[] = []
@@ -78,17 +279,17 @@ test('recorrido mantiene el árbol desvanecido y el camino a la raíz al cambiar
     expect(await layout()).toEqual(positions)
     expect(await page.locator('#walk-map .walk-lit').evaluateAll(edges => edges.map(edge => (edge as SVGElement).dataset.walkEdge).sort())).toEqual([...paths[index]].sort())
     await expect(page.locator('#walk-map .me-tpc').filter({ hasText: /^Raíz$/ })).toHaveCSS('opacity', '0.65')
-    await expect(page.locator('#walk-status')).toHaveText(`${index + 1} / ${states.length}`)
+    await expect(page.locator('#walk-map')).toHaveAttribute('data-step', String(index + 1))
     if (index < states.length - 1) await page.keyboard.press('ArrowDown')
   }
   await page.keyboard.press('ArrowDown')
-  await expect(page.locator('#walk-status')).toHaveText('5 / 5')
+  await expect(page.locator('#walk-map')).toHaveAttribute('data-step', '5')
   await expect(page.locator('#walk-map .me-tpc').filter({ hasText: /^V1$/ })).toHaveCSS('opacity', '0.16')
   await expect(page.locator('#walk-map [data-walk-edge="H2"]')).toHaveCSS('opacity', '1')
   await expect(page.locator('#walk-map [data-walk-edge="V1"]')).toHaveCSS('opacity', '0.13')
   await page.screenshot({ path: '.cache/walk-context.png' })
-  await page.locator('#walk-focus').click()
-  await expect.poll(topics).toEqual(['A2', 'H2'])
+  await page.keyboard.press('ArrowRight'); await page.keyboard.press('ArrowRight')
+  await expect.poll(topics).toEqual(['A2', 'H1', 'H2'])
   await expect(page.locator('#walk-map .me-tpc').filter({ hasText: /^A2$/ })).toHaveCSS('background-color', 'rgb(37, 99, 235)')
   await expect.poll(async () => {
     const boxes = await page.locator('#walk-map .walk-local').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().toJSON()))
@@ -98,12 +299,11 @@ test('recorrido mantiene el árbol desvanecido y el camino a la raíz al cambiar
   await page.screenshot({ path: '.cache/walk-focus.png' })
   await page.keyboard.press('ArrowUp')
   await expect.poll(topics).toEqual(['A2', 'H1'])
-  await page.locator('#walk-focus').click()
   for (let index = states.length - 2; index >= 0; index--) {
     await expect.poll(topics).toEqual(states[index])
     await page.keyboard.press('ArrowUp')
   }
-  await expect(page.locator('#walk-status')).toHaveText('1 / 5')
+  await expect(page.locator('#walk-map')).toHaveAttribute('data-step', '1')
   await page.keyboard.press('*')
   await expect(page.locator('#walk-map')).toBeHidden()
   await expect(page.locator('#map .me-tpc')).toHaveCount(9)
@@ -128,6 +328,68 @@ test('recorrido mantiene el árbol desvanecido y el camino a la raíz al cambiar
   expect(errors).toEqual([])
 })
 
+test('recorrido acota el zoom por niveles con derecha e izquierda sin cambiar el iluminado', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+  const data = { direction: 1, nodeData: { id: 'root', topic: 'Raíz de probabilidad y estadística: conceptos y ejercicios', children: [
+    { id: 'level1', topic: 'Primer nivel: cómo pensar y resolver un ejercicio', children: [
+      { id: 'level2', topic: 'Segundo nivel: interpretar el enunciado y organizar los datos', children: [
+        { id: 'parent', topic: 'Identificar eventos, datos e interrogantes', children: [
+          { id: 'short', topic: 'Pregunta breve' },
+          { id: 'note', topic: '**Ejemplo con texto largo**\n\nUn test detecta la presencia de una bacteria con probabilidad de 0.9. Si no hay bacterias, produce un resultado positivo con probabilidad de 0.08.\n\n¿Cuál es la probabilidad de que haya bacterias si el resultado del test es positivo?\n\nUsar la probabilidad condicional y el teorema de Bayes.' },
+        ] },
+      ] },
+    ] },
+  ] } }
+  await fileSystem(page, JSON.stringify(data)); await connect(page)
+  const saved = await readFile(page)
+  await page.keyboard.press('*')
+  await expect(page.locator('#walk-map')).toHaveAttribute('data-step', '1')
+  await page.keyboard.press('ArrowDown')
+  await expect(page.locator('#walk-map')).toHaveAttribute('data-step', '2')
+  const lit = () => page.locator('#walk-map .walk-lit').evaluateAll(edges => edges.map(edge => (edge as SVGElement).dataset.walkEdge).sort())
+  const lighting = await lit()
+  const transform = () => page.locator('#walk-map .map-canvas').evaluate(node => {
+    const matrix = new DOMMatrix((node as HTMLElement).style.transform)
+    return { scale: matrix.a, x: matrix.e, y: matrix.f }
+  })
+  // Disable animation to measure the final camera position and its exact reversal.
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.locator('#center').click()
+  const initial = await transform()
+  const rootIds = ['root', 'level1', 'level2', 'parent']
+  await expect(page.locator('#walk-controls')).toHaveCount(0)
+  for (let depth = 1; depth < rootIds.length; depth++) {
+    await page.keyboard.press('ArrowRight')
+    await expect(page.locator('#walk-map')).toHaveAttribute('data-camera-root', rootIds[depth])
+    await expect(page.locator('#walk-map')).toHaveAttribute('data-step', '2')
+    expect(await lit()).toEqual(lighting)
+    await expect(page.locator('#walk-map .walk-current')).toHaveAttribute('data-nodeid', 'menote')
+  }
+  await expect.poll(async () => (await transform()).scale).toBeGreaterThan(initial.scale)
+  await page.screenshot({ path: '.cache/walk-depth.png' })
+  await page.keyboard.press('ArrowRight')
+  await expect(page.locator('#walk-map')).toHaveAttribute('data-depth', '3')
+  // Keep this camera depth while moving between leaves of the same group.
+  await page.keyboard.press('ArrowUp')
+  await expect(page.locator('#walk-map')).toHaveAttribute('data-step', '1')
+  await expect(page.locator('#walk-map')).toHaveAttribute('data-depth', '3')
+  await page.keyboard.press('ArrowDown')
+  for (let depth = rootIds.length - 2; depth >= 0; depth--) {
+    await page.keyboard.press('ArrowLeft')
+    await expect(page.locator('#walk-map')).toHaveAttribute('data-camera-root', rootIds[depth])
+    expect(await lit()).toEqual(lighting)
+  }
+  await expect.poll(async () => (await transform()).scale).toBeCloseTo(initial.scale, 4)
+  await expect.poll(async () => (await transform()).x).toBeCloseTo(initial.x, 2)
+  await expect.poll(async () => (await transform()).y).toBeCloseTo(initial.y, 2)
+  await page.keyboard.press('ArrowLeft')
+  await expect(page.locator('#walk-map')).toHaveAttribute('data-depth', '0')
+  await page.keyboard.press('*')
+  expect(await readFile(page)).toEqual(saved)
+  expect(errors).toEqual([])
+})
+
 test('recorrido ilumina conexiones de ramas laterales y plegadas con cada estilo de línea', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
@@ -146,7 +408,7 @@ test('recorrido ilumina conexiones de ramas laterales y plegadas con cada estilo
     await page.locator('#walk-button').click()
     await expect(page.locator('#walk-map .me-tpc')).toHaveCount(7)
     for (let index = 0; index < expected.length; index++) {
-      await expect(page.locator('#walk-status')).toHaveText(`${index + 1} / 4`)
+      await expect(page.locator('#walk-map')).toHaveAttribute('data-step', String(index + 1))
       expect(await page.locator('#walk-map .walk-lit').evaluateAll(edges => edges.map(edge => (edge as SVGElement).dataset.walkEdge).sort())).toEqual([...expected[index]].sort())
       if (index < expected.length - 1) await page.keyboard.press('ArrowDown')
     }
@@ -163,11 +425,9 @@ test('recorrido de un único nodo respeta límites, repetición de asterisco y d
   page.on('pageerror', error => errors.push(error.message))
   await fileSystem(page); await connect(page)
   await page.locator('#walk-button').click()
-  await expect(page.locator('#walk-status')).toHaveText('1 / 1')
-  await expect(page.locator('#walk-prev')).toBeDisabled()
-  await expect(page.locator('#walk-next')).toBeDisabled()
+  await expect(page.locator('#walk-map')).toHaveAttribute('data-step', '1')
+  await expect(page.locator('#walk-map')).toHaveAttribute('data-total', '1')
   await page.keyboard.press('ArrowDown'); await page.keyboard.press('ArrowUp')
-  await page.locator('#walk-focus').click()
   await expect(page.locator('#walk-map .me-tpc')).toHaveCount(1)
   await page.keyboard.down('*')
   await expect(page.locator('#walk-map')).toBeHidden()
@@ -640,10 +900,13 @@ test('biblioteca, nombres de raíz, búsqueda, creación y papelera', async ({ p
   await expect(page.locator('#choose-folder')).toHaveText('')
   await expect(page.getByRole('button', { name: 'Abrir Mapa renombrado', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: /Importar|IA desde Doc/ })).toHaveCount(0)
-  for (const name of ['Etiquetas', 'Configuración', 'Usuario']) {
+  for (const name of ['Etiquetas', 'Usuario']) {
     await page.getByRole('button', { name, exact: true }).click()
     await expect(page.locator('#library')).toBeVisible()
   }
+  await page.locator('#library-settings').click()
+  await expect(page.locator('#groq-dialog')).toBeVisible()
+  await page.locator('#groq-close').click()
   await page.getByRole('searchbox', { name: 'Buscar en mapas mentales' }).fill('otro')
   await expect(page.locator('.map-card')).toHaveCount(0)
   await page.getByRole('searchbox', { name: 'Buscar en mapas mentales' }).fill('')

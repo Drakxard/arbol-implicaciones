@@ -49,3 +49,20 @@ export function walkHighlight(root: NodeObj, step: WalkStep, focus: boolean) {
   edges.delete(root.id)
   return { local, trail, edges }
 }
+
+/** Crop only the camera's ancestor context; the full tree and its lighting stay intact. */
+export function walkFrame(root: NodeObj, step: WalkStep, depth: number, focus: boolean) {
+  const path: NodeObj[] = []
+  function find(node: NodeObj): boolean {
+    path.push(node)
+    if (node.id === step.parent.id || node.children?.some(find)) return true
+    path.pop()
+    return false
+  }
+  if (!find(root)) path.push(root)
+  const maxDepth = path.length - 1
+  const level = Math.max(0, Math.min(maxDepth, depth))
+  const ids = new Set([...path.slice(level).map(node => node.id),
+    ...step.children.filter(child => !focus || child.id === step.activeId).map(child => child.id)])
+  return { depth: level, maxDepth, rootId: path[level].id, ids }
+}
