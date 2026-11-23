@@ -47,6 +47,97 @@ async function readFile(page: Page) {
 }
 async function root(page: Page) { return page.locator('.me-root > .me-tpc') }
 
+test('recorrido con asterisco revela subárboles locales, retrocede y enfoca sin modificar el mapa', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+  const node = (id: string, children?: unknown[], background = '#2563eb'): unknown => ({ id: id.normalize('NFD').replace(/[\u0300-\u036f]/g, ''), topic: id, children,
+    style: { background, color: '#ffffff', fontSize: '20px' } })
+  const data = { nodeData: node('Raíz', [node('Violeta', [node('V1'), node('V2')], '#8b4dff'),
+    node('Azul', [node('A1'), node('A2', [node('H1'), node('H2')])])], '#f59e0b'), direction: 1 }
+  await fileSystem(page, JSON.stringify(data)); await connect(page)
+  const original = await readFile(page)
+  const originalBounds = await page.locator('#map .me-root > .me-tpc').boundingBox()
+  await page.keyboard.press('*')
+  await expect(page.locator('#walk-button')).toHaveAttribute('aria-pressed', 'true')
+  const topics = () => page.locator('#walk-map .me-tpc').allTextContents()
+  const states = [
+    ['Violeta', 'V1'], ['Violeta', 'V1', 'V2'], ['Azul', 'A1'],
+    ['A2', 'H1'], ['A2', 'H1', 'H2'],
+  ]
+  for (let index = 0; index < states.length; index++) {
+    await expect.poll(topics).toEqual(states[index])
+    await expect(page.locator('#walk-status')).toHaveText(`${index + 1} / ${states.length}`)
+    if (index < states.length - 1) await page.keyboard.press('ArrowDown')
+  }
+  await page.keyboard.press('ArrowDown')
+  await expect(page.locator('#walk-status')).toHaveText('5 / 5')
+  await page.locator('#walk-focus').click()
+  await expect.poll(topics).toEqual(['A2', 'H2'])
+  await expect(page.locator('#walk-map .me-tpc').filter({ hasText: /^A2$/ })).toHaveCSS('background-color', 'rgb(37, 99, 235)')
+  await expect.poll(async () => {
+    const box = await page.locator('#walk-map .me-root > .me-tpc').boundingBox()
+    return Math.abs(box!.y + box!.height / 2 - 384)
+  }).toBeLessThan(5)
+  await page.screenshot({ path: '.cache/walk-focus.png' })
+  await page.keyboard.press('ArrowUp')
+  await expect.poll(topics).toEqual(['A2', 'H1'])
+  await page.locator('#walk-focus').click()
+  for (let index = states.length - 2; index >= 0; index--) {
+    await expect.poll(topics).toEqual(states[index])
+    await page.keyboard.press('ArrowUp')
+  }
+  await expect(page.locator('#walk-status')).toHaveText('1 / 5')
+  await page.keyboard.press('*')
+  await expect(page.locator('#walk-map')).toBeHidden()
+  await expect(page.locator('#map .me-tpc')).toHaveCount(9)
+  expect(await page.locator('#map .me-root > .me-tpc').boundingBox()).toEqual(originalBounds)
+  await page.keyboard.press('Control+s')
+  expect(await readFile(page)).toEqual(original)
+  await page.locator('#map .me-root > .me-tpc').dblclick()
+  await page.locator('#input-box').fill('Raíz * escrita')
+  await page.keyboard.press('*')
+  await expect(page.locator('#walk-map')).toBeHidden()
+  await expect(page.locator('#input-box')).toHaveText('Raíz * escrita*')
+  await page.keyboard.press('Enter')
+  await page.getByRole('tab', { name: 'Nota', exact: true }).click()
+  await page.getByLabel('Nota del nodo').fill('Nota ')
+  await page.keyboard.press('*')
+  await expect(page.getByLabel('Nota del nodo')).toHaveValue('Nota *')
+  await expect(page.locator('#walk-map')).toBeHidden()
+  await page.locator('#walk-button').click()
+  await expect(page.locator('#walk-map')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.locator('#walk-map')).toBeHidden()
+  expect(errors).toEqual([])
+})
+
+test('recorrido de un único nodo respeta límites, repetición de asterisco y diálogos', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+  await fileSystem(page); await connect(page)
+  await page.locator('#walk-button').click()
+  await expect(page.locator('#walk-status')).toHaveText('1 / 1')
+  await expect(page.locator('#walk-prev')).toBeDisabled()
+  await expect(page.locator('#walk-next')).toBeDisabled()
+  await page.keyboard.press('ArrowDown'); await page.keyboard.press('ArrowUp')
+  await page.locator('#walk-focus').click()
+  await expect(page.locator('#walk-map .me-tpc')).toHaveCount(1)
+  await page.keyboard.down('*')
+  await expect(page.locator('#walk-map')).toBeHidden()
+  await page.keyboard.down('*')
+  await expect(page.locator('#walk-map')).toBeHidden()
+  await page.keyboard.up('*')
+  await page.keyboard.press('*')
+  await expect(page.locator('#walk-map')).toBeVisible()
+  await page.locator('#shortcuts-button').click()
+  await page.keyboard.press('*')
+  await expect(page.locator('#walk-map')).toBeVisible()
+  await page.keyboard.press('Escape'); await page.keyboard.press('Escape')
+  await expect(page.locator('#walk-map')).toBeHidden()
+  expect(await readFile(page)).toBeNull()
+  expect(errors).toEqual([])
+})
+
 async function createMap(page: Page) {
   await page.getByRole('button', { name: 'Crear nuevo', exact: true }).click()
   await page.getByRole('button', { name: 'Mapa', exact: true }).click()

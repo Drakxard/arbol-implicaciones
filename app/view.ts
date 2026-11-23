@@ -2,6 +2,7 @@ import { icon, iconButton } from './icons'
 
 export const emojis = ['⭐', '✅', '❌', '⚠️', '📝', '💡', '📌', '🔍', '🔥', '🗓️', '⌛', '🔒', '🚀', '🌟', '🛠️', '📚', '🎯', '🖍️', '💬', '🌍', '🎨', '❤️', '🔄', '🎉']
 export const shortcuts = [
+  ['Activar / salir del recorrido', '*'], ['Avanzar / retroceder en el recorrido', '↓ / ↑'],
   ['Añadir nodo hijo', 'Tab'], ['Añadir nodo padre', 'Ctrl + Enter'], ['Añadir nodo hermano', 'Enter'],
   ['Eliminar', 'Delete'], ['Mover arriba', 'Alt + ↑'], ['Mover abajo', 'Alt + ↓'],
   ['Mostrar lateral', 'Ctrl + ↑'], ['Mostrar izquierda', 'Ctrl + ←'], ['Mostrar derecha', 'Ctrl + →'], ['Guardar', 'Ctrl + S'],
@@ -54,6 +55,15 @@ export function renderApp() {
   <main id="editor" aria-label="Editor de mapas mentales">
     <section id="stage" aria-label="Área de trabajo">
       <div id="map" aria-label="Mapa mental"></div>
+      <div id="walk-map" aria-label="Recorrido del árbol" hidden></div>
+      <nav id="walk-controls" aria-label="Recorrido del árbol" hidden>
+        <span>Recorrido</span>
+        <button type="button" id="walk-prev" aria-label="Paso anterior (↑)">↑</button>
+        <output id="walk-status" aria-live="polite"></output>
+        <button type="button" id="walk-next" aria-label="Paso siguiente (↓)">↓</button>
+        ${iconButton('walk-focus', 'Enfocar padre y hoja activa', 'focus', 'aria-pressed="false"')}
+        ${iconButton('walk-close', 'Salir del recorrido (*)', 'close')}
+      </nav>
       <div id="outline" aria-label="Esquema del mapa" hidden></div>
       <nav class="topbar" aria-label="Archivo e historial">
         ${iconButton('file-menu-button', 'Volver a la biblioteca', 'back')}
@@ -63,6 +73,7 @@ export function renderApp() {
       <div id="connection-banner" hidden><span id="connection-message"></span><button type="button" id="connect-banner">Seleccionar carpeta</button></div>
       <nav class="tool-rail" aria-label="Herramientas del mapa">
         ${iconButton('hand', 'Mover pizarra (mano)', 'hand', 'aria-pressed="false"')}
+        ${iconButton('walk-button', 'Recorrer árbol (*)', 'walk', 'aria-pressed="false"')}
         ${iconButton('fullscreen', 'Pantalla completa', 'full')}
         ${iconButton('center', 'Centrar mapa (F1)', 'center')}
         ${iconButton('zoom-out', 'Alejar', 'minus')}

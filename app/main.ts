@@ -7,6 +7,7 @@ import { mapPreview, moveMap, copyMap, directoryAt, listFolders, createLibraryFo
 import { icon } from './icons'
 import { renderMarkdown } from './markdown'
 import { installCanvasPan } from './pan'
+import { installNavigation } from './navigation'
 import { themeFor, textColor, styleDescendants } from './appearance'
 import { readTextDefaults, writeTextDefaults, withTextDefaults, type TextDefaults } from './defaults'
 import './style.css'
@@ -41,6 +42,8 @@ const mind = new MindElixir({ el: '#map', toolBar: false, keypress: true, allowU
 const initError = await mind.init(newDocument())
 if (initError) throw initError
 installCanvasPan(mind, $<HTMLButtonElement>('hand'), finishMapEdit)
+const navigation = installNavigation(mind, () => !loading && !$('map').inert && $('outline').hidden
+  && $('library').hidden && !document.querySelector('dialog[open]') && !mind.container.querySelector('#input-box'))
 
 function finishMapEdit() {
   // Close the live editor before history removes or replaces its host node.
@@ -69,6 +72,7 @@ function snapshot(): MindElixirData {
 }
 
 async function loadDocument(data: MindElixirData) {
+  navigation.stop()
   loading = true
   try {
     if (!$('library').hidden) showEditor()
@@ -390,9 +394,9 @@ on('collapse-panel', () => {
   $('collapse-panel').setAttribute('aria-expanded', String(!collapsed))
   $('collapse-panel').setAttribute('aria-label', collapsed ? 'Expandir panel' : 'Contraer panel')
 })
-on('center', () => mind.toCenter())
-on('zoom-out', () => mind.scale(mind.scaleVal - .1))
-on('zoom-in', () => mind.scale(mind.scaleVal + .1))
+on('center', () => navigation.active ? navigation.fit() : mind.toCenter())
+on('zoom-out', () => navigation.canvas.scale(navigation.canvas.scaleVal - .1))
+on('zoom-in', () => navigation.canvas.scale(navigation.canvas.scaleVal + .1))
 on('layout-right', () => mind.initRight())
 on('layout-left', () => mind.initLeft())
 on('layout-side', () => mind.initSide())
@@ -704,6 +708,7 @@ function showEditor() {
   requestAnimationFrame(() => { mind.toCenter(); mind.container.focus() })
 }
 async function showLibrary() {
+  navigation.stop()
   if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
   await Promise.resolve()
   await session.save()
@@ -871,10 +876,29 @@ document.addEventListener('keydown', event => {
     return
   }
   if (mod && key === 's') { event.preventDefault(); event.stopPropagation(); void saveNow(); return }
-  if (mod && key === 'f') { event.preventDefault(); event.stopPropagation(); openSearch(); return }
+  if (mod && key === 'f') { event.preventDefault(); event.stopPropagation(); navigation.stop(); openSearch(); return }
   const target = event.target as HTMLElement
   const typing = !!target.closest('input, textarea, select, [contenteditable]:not([contenteditable=false])')
   const editingMap = !!target.closest('#map #input-box')
+  if (!typing && !mod && !event.altKey && event.key === '*') {
+    event.preventDefault(); event.stopImmediatePropagation()
+    if (!event.repeat) navigation.toggle()
+    return
+  }
+  if (!typing && navigation.key(event)) {
+    event.preventDefault(); event.stopImmediatePropagation(); return
+  }
+  if (!typing && navigation.active) {
+    // Keep editing and layout shortcuts from reaching the hidden editable canvas.
+    if (mod && ['+', '=', '-', '0'].includes(event.key)) {
+      navigation.canvas.scale(event.key === '0' ? 1 : navigation.canvas.scaleVal + (event.key === '-' ? -.1 : .1))
+    } else if (event.key === 'F1') navigation.fit()
+    else if (event.shiftKey && (event.key === '?' || event.code === 'Slash')) openShortcuts()
+    if (target.closest('#walk-map') || (target === document.body && ['Tab', 'Enter', 'Delete', 'Backspace', 'F1', 'F2'].includes(event.key)) || mod) {
+      event.preventDefault(); event.stopImmediatePropagation()
+    }
+    return
+  }
   if (event.key === 'Escape') {
     // Commit through Core's blur handler before its Escape handler can restore the old text.
     event.preventDefault(); event.stopPropagation()

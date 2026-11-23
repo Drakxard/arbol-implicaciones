@@ -1,4 +1,6 @@
 const paths: Record<string, string> = {
+  focus: '<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2"/><path d="M12 2v4m0 12v4M2 12h4m12 0h4"/>',
+  walk: '<path d="M4 4h7v16H4m7-8h9M4 4h.01M4 20h.01"/><circle cx="20" cy="12" r="2"/>',
   hand: '<path d="M8 13V6a2 2 0 0 1 4 0v6-8a2 2 0 0 1 4 0v8-6a2 2 0 0 1 4 0v9c0 4-3 7-7 7h-1c-2 0-4-1-5-3l-4-6a2 2 0 0 1 3-2l2 2Z"/>',
   home: '<path d="m3 10 9-7 9 7v11H3Zm6 11v-8h6v8"/>',
   tag: '<path d="M3 3h8l10 10-8 8L3 11Z"/><circle cx="7" cy="7" r="1"/>',
