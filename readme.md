@@ -27,7 +27,7 @@ El archivo contiene el JSON nativo de Mind Elixir, imágenes locales en base64 y
 
 ## Editor
 
-- `*` activa o desactiva el recorrido cuando no estás escribiendo. Se muestra el subárbol local más cercano a las hojas: su padre inmediato y las hojas hermanas reveladas. `↓` revela la siguiente hermana o pasa al siguiente subárbol, ocultando el anterior; los nodos internos se recorren hasta sus hojas sin mostrarlos como hojas provisionales. `↑` reconstruye el paso anterior. La mira limita la vista a la hoja activa y su padre; el encuadre se adapta a cada paso. Escape también sale. El recorrido no modifica el archivo, el historial ni la vista original.
+- `*` activa o desactiva el recorrido cuando no estás escribiendo. El árbol completo conserva su distribución: el grupo local de hojas y su padre se destacan, las demás ramas quedan desvanecidas y el camino hasta la raíz permanece iluminado. `↓` revela la siguiente hermana o destaca el siguiente subárbol; `↑` recupera el paso anterior. La mira acerca la hoja activa y su padre sin retirar el contexto del árbol. El encuadre cambia suavemente, respetando la preferencia de movimiento reducido del navegador. Escape también sale. El recorrido no modifica el archivo, el historial ni la vista original.
 - Doble clic o F2: editar. Tab: hijo. Enter: hermano. Ctrl+Enter: padre.
 - Arrastrá con el botón central del mouse para mover la pizarra. El icono de mano de la barra izquierda permite moverla arrastrando con el botón izquierdo, incluso sobre los nodos.
 - Clic derecho: operaciones del núcleo, relaciones y resúmenes. Arrastrá nodos para reorganizarlos.

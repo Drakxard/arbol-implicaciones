@@ -47,7 +47,7 @@ async function readFile(page: Page) {
 }
 async function root(page: Page) { return page.locator('.me-root > .me-tpc') }
 
-test('recorrido con asterisco revela subárboles locales, retrocede y enfoca sin modificar el mapa', async ({ page }) => {
+test('recorrido mantiene el árbol desvanecido y el camino a la raíz al cambiar el grupo local', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
   const node = (id: string, children?: unknown[], background = '#2563eb'): unknown => ({ id: id.normalize('NFD').replace(/[\u0300-\u036f]/g, ''), topic: id, children,
@@ -59,24 +59,41 @@ test('recorrido con asterisco revela subárboles locales, retrocede y enfoca sin
   const originalBounds = await page.locator('#map .me-root > .me-tpc').boundingBox()
   await page.keyboard.press('*')
   await expect(page.locator('#walk-button')).toHaveAttribute('aria-pressed', 'true')
-  const topics = () => page.locator('#walk-map .me-tpc').allTextContents()
+  const topics = () => page.locator('#walk-map .me-tpc.walk-local').allTextContents()
   const states = [
     ['Violeta', 'V1'], ['Violeta', 'V1', 'V2'], ['Azul', 'A1'],
     ['A2', 'H1'], ['A2', 'H1', 'H2'],
   ]
+  const paths = [['Violeta', 'V1'], ['Violeta', 'V1', 'V2'], ['Azul', 'A1'], ['Azul', 'A2', 'H1'], ['Azul', 'A2', 'H1', 'H2']]
+  await expect(page.locator('#walk-map .me-tpc')).toHaveCount(9)
+  await expect(page.locator('#walk-map [data-walk-edge]')).toHaveCount(8)
+  const layout = () => page.locator('#walk-map .me-tpc').evaluateAll(nodes => nodes.map(node => {
+    const element = node as HTMLElement
+    return { id: element.dataset.nodeid, x: element.offsetLeft, y: element.offsetTop, width: element.offsetWidth, height: element.offsetHeight }
+  }))
+  const positions = await layout()
   for (let index = 0; index < states.length; index++) {
     await expect.poll(topics).toEqual(states[index])
+    await expect(page.locator('#walk-map .me-tpc')).toHaveCount(9)
+    expect(await layout()).toEqual(positions)
+    expect(await page.locator('#walk-map .walk-lit').evaluateAll(edges => edges.map(edge => (edge as SVGElement).dataset.walkEdge).sort())).toEqual([...paths[index]].sort())
+    await expect(page.locator('#walk-map .me-tpc').filter({ hasText: /^Raíz$/ })).toHaveCSS('opacity', '0.65')
     await expect(page.locator('#walk-status')).toHaveText(`${index + 1} / ${states.length}`)
     if (index < states.length - 1) await page.keyboard.press('ArrowDown')
   }
   await page.keyboard.press('ArrowDown')
   await expect(page.locator('#walk-status')).toHaveText('5 / 5')
+  await expect(page.locator('#walk-map .me-tpc').filter({ hasText: /^V1$/ })).toHaveCSS('opacity', '0.16')
+  await expect(page.locator('#walk-map [data-walk-edge="H2"]')).toHaveCSS('opacity', '1')
+  await expect(page.locator('#walk-map [data-walk-edge="V1"]')).toHaveCSS('opacity', '0.13')
+  await page.screenshot({ path: '.cache/walk-context.png' })
   await page.locator('#walk-focus').click()
   await expect.poll(topics).toEqual(['A2', 'H2'])
   await expect(page.locator('#walk-map .me-tpc').filter({ hasText: /^A2$/ })).toHaveCSS('background-color', 'rgb(37, 99, 235)')
   await expect.poll(async () => {
-    const box = await page.locator('#walk-map .me-root > .me-tpc').boundingBox()
-    return Math.abs(box!.y + box!.height / 2 - 384)
+    const boxes = await page.locator('#walk-map .walk-local').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().toJSON()))
+    const center = (Math.min(...boxes.map(box => box.top)) + Math.max(...boxes.map(box => box.bottom))) / 2
+    return Math.abs(center - 384)
   }).toBeLessThan(5)
   await page.screenshot({ path: '.cache/walk-focus.png' })
   await page.keyboard.press('ArrowUp')
@@ -108,6 +125,36 @@ test('recorrido con asterisco revela subárboles locales, retrocede y enfoca sin
   await expect(page.locator('#walk-map')).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(page.locator('#walk-map')).toBeHidden()
+  expect(errors).toEqual([])
+})
+
+test('recorrido ilumina conexiones de ramas laterales y plegadas con cada estilo de línea', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+  const data = { direction: 2, nodeData: { id: 'root', topic: 'Root', children: [
+    { id: 'left', topic: 'Left', direction: 0, expanded: false, children: [
+      { id: 'l1', topic: 'L1', branchColor: '#ff0000' }, { id: 'l2', topic: 'L2', branchColor: '#0000ff' },
+    ] },
+    { id: 'right', topic: 'Right', direction: 1, children: [{ id: 'r1', topic: 'R1' }, { id: 'r2', topic: 'R2' }] },
+  ] } }
+  await fileSystem(page, JSON.stringify(data)); await connect(page)
+  const expected = [['left', 'l1'], ['left', 'l1', 'l2'], ['right', 'r1'], ['right', 'r1', 'r2']]
+  for (const style of ['straight', 'orthogonal', 'curve']) {
+    await page.getByLabel('Estilo de rama').selectOption(style)
+    await page.keyboard.press('Control+s')
+    const saved = await readFile(page)
+    await page.locator('#walk-button').click()
+    await expect(page.locator('#walk-map .me-tpc')).toHaveCount(7)
+    for (let index = 0; index < expected.length; index++) {
+      await expect(page.locator('#walk-status')).toHaveText(`${index + 1} / 4`)
+      expect(await page.locator('#walk-map .walk-lit').evaluateAll(edges => edges.map(edge => (edge as SVGElement).dataset.walkEdge).sort())).toEqual([...expected[index]].sort())
+      if (index < expected.length - 1) await page.keyboard.press('ArrowDown')
+    }
+    await page.keyboard.press('*')
+    await expect(page.locator('#map .me-tpc')).toHaveCount(5)
+    expect(await readFile(page)).toEqual(saved)
+    expect((await readFile(page)).nodeData.children[0].expanded).toBe(false)
+  }
   expect(errors).toEqual([])
 })
 

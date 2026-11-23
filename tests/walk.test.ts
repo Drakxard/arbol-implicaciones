@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { NodeObj } from 'mind-elixir'
-import { walkSteps, walkTree } from '../app/walk'
+import { walkSteps, walkTree, walkHighlight } from '../app/walk'
 
 const node = (id: string, children?: NodeObj[]): NodeObj => ({ id, topic: id, children })
 const tree = () => node('root', [node('purple', [node('p1'), node('p2')]),
@@ -55,4 +55,21 @@ test('volver a un padre después de un subárbol intermedio no recupera sus hoja
     ['root', 'a'], ['root', 'a', 'b'], ['deep', 'c'], ['deep', 'c', 'd'], ['root', 'e'], ['root', 'e', 'f'],
   ])
   assert.ok(steps.every(step => step.children.every(child => !child.children?.length)))
+})
+
+test('ilumina el grupo local y las conexiones hasta la raíz, sin incluir otras ramas', () => {
+  const root = tree()
+  const steps = walkSteps(root)
+  const state = walkHighlight(root, steps.at(-1)!, false)
+  assert.deepEqual([...state.local], ['b2', 'c1', 'c2'])
+  assert.deepEqual([...state.trail].sort(), ['blue', 'root'])
+  assert.deepEqual([...state.edges].sort(), ['b2', 'blue', 'c1', 'c2'])
+  const focused = walkHighlight(root, steps.at(-1)!, true)
+  assert.deepEqual([...focused.local], ['b2', 'c2'])
+  assert.deepEqual([...focused.edges].sort(), ['b2', 'blue', 'c2'])
+  const previous = walkHighlight(root, steps[0], false)
+  assert.deepEqual([...previous.edges].sort(), ['p1', 'purple'])
+  assert.ok(!previous.edges.has('blue'))
+  const only = node('only')
+  assert.equal(walkHighlight(only, walkSteps(only)[0], false).edges.size, 0)
 })

@@ -61,7 +61,7 @@ export function renderApp() {
         <button type="button" id="walk-prev" aria-label="Paso anterior (↑)">↑</button>
         <output id="walk-status" aria-live="polite"></output>
         <button type="button" id="walk-next" aria-label="Paso siguiente (↓)">↓</button>
-        ${iconButton('walk-focus', 'Enfocar padre y hoja activa', 'focus', 'aria-pressed="false"')}
+        ${iconButton('walk-focus', 'Acercar al padre y la hoja activa', 'focus', 'aria-pressed="false"')}
         ${iconButton('walk-close', 'Salir del recorrido (*)', 'close')}
       </nav>
       <div id="outline" aria-label="Esquema del mapa" hidden></div>

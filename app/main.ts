@@ -43,7 +43,7 @@ const initError = await mind.init(newDocument())
 if (initError) throw initError
 installCanvasPan(mind, $<HTMLButtonElement>('hand'), finishMapEdit)
 const navigation = installNavigation(mind, () => !loading && !$('map').inert && $('outline').hidden
-  && $('library').hidden && !document.querySelector('dialog[open]') && !mind.container.querySelector('#input-box'))
+  && $('library').hidden && !document.querySelector('dialog[open]') && !mind.container.querySelector('#input-box'), () => settings)
 
 function finishMapEdit() {
   // Close the live editor before history removes or replaces its host node.

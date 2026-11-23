@@ -1,8 +1,10 @@
-import MindElixir from 'mind-elixir'
+import MindElixir, { type NodeObj } from 'mind-elixir'
 import { renderMarkdown } from './markdown'
-import { walkSteps, walkTree, type WalkStep } from './walk'
+import { walkSteps, walkHighlight, type WalkStep } from './walk'
+import { textColor } from './appearance'
+import type { EditorSettings } from './document'
 
-export function installNavigation(mind: MindElixir, available: () => boolean) {
+export function installNavigation(mind: MindElixir, available: () => boolean, getSettings: () => EditorSettings) {
   const element = (id: string) => document.getElementById(id)!
   const host = element('walk-map')
   const button = element('walk-button')
@@ -12,14 +14,58 @@ export function installNavigation(mind: MindElixir, available: () => boolean) {
   let index = 0
   let focus = false
   let frame = 0
+  let tree: NodeObj
+  let animation: Animation | undefined
   const disabled = new Map<HTMLButtonElement, boolean>()
+
+  // Core batches same-color edges into compound SVG paths. Separate their subpaths
+  // so each child connection can fade independently without changing its geometry.
+  function labelEdges() {
+    if (!viewer) return
+    const branches = viewer.nodes.querySelectorAll<HTMLElement>('.me-main > .me-wrapper')
+    branches.forEach((branch, index) => {
+      const nodes = Array.from(branch.querySelectorAll<HTMLElement & { nodeObj: NodeObj }>('.me-tpc'))
+      const main = viewer!.lines.children[index] as SVGPathElement | undefined
+      if (main) main.dataset.walkEdge = nodes[0].nodeObj.id
+      let childIndex = 1
+      for (const path of branch.querySelectorAll<SVGPathElement>(':scope > .subLines > path')) {
+        const parts = path.getAttribute('d')?.match(/[Mm][^Mm]*/g) ?? []
+        const fragment = document.createDocumentFragment()
+        for (const part of parts) {
+          const edge = path.cloneNode(false) as SVGPathElement
+          edge.setAttribute('d', part)
+          if (nodes[childIndex]) edge.dataset.walkEdge = nodes[childIndex++].nodeObj.id
+          fragment.append(edge)
+        }
+        path.replaceWith(fragment)
+      }
+    })
+    highlight()
+  }
+
+  function highlight() {
+    if (!viewer) return
+    const state = walkHighlight(tree, steps[index], focus)
+    for (const node of viewer.container.querySelectorAll<HTMLElement & { nodeObj: NodeObj }>('.me-tpc')) {
+      node.classList.toggle('walk-local', state.local.has(node.nodeObj.id))
+      node.classList.toggle('walk-trail', state.trail.has(node.nodeObj.id))
+      node.classList.toggle('walk-current', node.nodeObj.id === steps[index].activeId)
+    }
+    for (const edge of viewer.container.querySelectorAll<SVGPathElement>('[data-walk-edge]')) {
+      edge.classList.toggle('walk-lit', state.edges.has(edge.dataset.walkEdge!))
+    }
+  }
 
   function fit() {
     if (!viewer) return
-    // Fit the visible frontier, keeping room for the rail and navigation controls.
+    const nodes = Array.from(viewer.container.querySelectorAll<HTMLElement>(focus ? '.walk-local' : '.walk-local, .walk-trail'))
+    if (!nodes.length) return
+    const previous = getComputedStyle(viewer.map).transform
+    animation?.cancel()
+    viewer.map.style.transition = 'none'
+    // Keep the root path in view; the sight button brings the leaf and parent closer.
     const bounds = host.getBoundingClientRect()
     viewer.scale(1)
-    const nodes = Array.from(viewer.container.querySelectorAll<HTMLElement>('.me-tpc'))
     const boxes = nodes.map(node => node.getBoundingClientRect())
     const left = Math.min(...boxes.map(box => box.left))
     const top = Math.min(...boxes.map(box => box.top))
@@ -30,13 +76,14 @@ export function installNavigation(mind: MindElixir, available: () => boolean) {
     const x = (Math.min(...scaled.map(box => box.left)) + Math.max(...scaled.map(box => box.right))) / 2
     const y = (Math.min(...scaled.map(box => box.top)) + Math.max(...scaled.map(box => box.bottom))) / 2
     viewer.move(bounds.left + bounds.width / 2 + 25 - x, bounds.top + bounds.height / 2 - y)
+    if (previous !== 'none' && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      animation = viewer.map.animate([{ transform: previous }, { transform: viewer.map.style.transform }], { duration: 240, easing: 'ease-out' })
+    }
   }
 
   function render() {
     if (!viewer) return
-    const step = steps[index]
-    viewer.refresh({ nodeData: walkTree(step, focus) })
-    viewer.selectNode(viewer.findEle(step.activeId))
+    highlight()
     element('walk-status').textContent = `${index + 1} / ${steps.length}`
     ;(element('walk-prev') as HTMLButtonElement).disabled = index === 0
     ;(element('walk-next') as HTMLButtonElement).disabled = index === steps.length - 1
@@ -48,6 +95,7 @@ export function installNavigation(mind: MindElixir, available: () => boolean) {
   function stop() {
     if (!viewer) return
     cancelAnimationFrame(frame)
+    animation?.cancel()
     viewer.destroy()
     viewer = undefined
     host.hidden = true
@@ -67,15 +115,23 @@ export function installNavigation(mind: MindElixir, available: () => boolean) {
     if (!available()) return
     // Project a snapshot into a separate read-only canvas: no changes to history or files.
     const data = mind.getData()
-    function preserve(node: typeof data.nodeData) {
-      const original = mind.findEle(node.id)
+    const settings = getSettings()
+    const originals = new Map(Array.from(mind.container.querySelectorAll<HTMLElement & { nodeObj: NodeObj }>('.me-tpc'), node => [node.nodeObj.id, node]))
+    function preserve(node: NodeObj, parent?: NodeObj) {
+      const original = originals.get(node.id)
       if (original) {
         const css = getComputedStyle(original)
         node.style = { ...node.style, color: css.color, fontSize: css.fontSize, background: css.backgroundColor }
+      } else {
+        node.style = { ...node.style, color: textColor({ ...node, parent }, settings, mind.container),
+          fontSize: node.style?.fontSize || `${settings.descendantFontSize ?? 16}px` }
       }
-      node.children?.forEach(preserve)
+      node.expanded = true
+      const ancestor = { ...node, parent }
+      node.children?.forEach(child => preserve(child, ancestor))
     }
     preserve(data.nodeData)
+    tree = data.nodeData
     steps = walkSteps(data.nodeData)
     index = 0
     host.style.setProperty('--map-font', element('map').style.getPropertyValue('--map-font'))
@@ -85,7 +141,8 @@ export function installNavigation(mind: MindElixir, available: () => boolean) {
       allowUndo: false, direction: mind.direction, compact: mind.compact, theme: mind.theme,
       markdown: renderMarkdown, scaleMin: .05, scaleMax: 5 })
     const currentViewer = viewer
-    void viewer.init({ nodeData: walkTree(steps[0], focus) }).then(() => {
+    viewer.bus.addListener('linkDiv', labelEdges)
+    void viewer.init({ nodeData: tree, arrows: data.arrows, summaries: data.summaries }).then(() => {
       if (viewer === currentViewer) render()
     })
     element('walk-controls').hidden = false
@@ -100,7 +157,6 @@ export function installNavigation(mind: MindElixir, available: () => boolean) {
     element('search-button').setAttribute('aria-expanded', 'false')
     element('global-panel').inert = true
     element('node-panel').inert = true
-    render()
     viewer.container.focus({ preventScroll: true })
   }
 
