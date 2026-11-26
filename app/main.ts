@@ -27,6 +27,28 @@ let tab = 'general'
 let imageRatioLocked = true
 let selectingFolder = false
 let toastTimer: ReturnType<typeof setTimeout>
+const locationKey = 'arbol.location.v1'
+type AppLocation = { view: 'library' | 'editor'; path: string[]; fileName?: string; trash?: boolean }
+function readLocation(): AppLocation | null {
+  try {
+    const value = JSON.parse(localStorage.getItem(locationKey) ?? 'null')
+    if (!value || !['library', 'editor'].includes(value.view) || !Array.isArray(value.path)
+      || !value.path.every((part: unknown) => typeof part === 'string' && !!part && !/[\\/]/.test(part) && !['.', '..', '.papelera'].includes(part))) return null
+    if (value.fileName !== undefined && (typeof value.fileName !== 'string' || /[\\/]/.test(value.fileName) || !value.fileName.endsWith('.json'))) return null
+    return value
+  } catch { return null }
+}
+const initialLocation = readLocation()
+let restoringLocation = true
+let editorPath: string[] = []
+function rememberLocation() {
+  if (restoringLocation) return
+  const directory = session.directory
+  const location: AppLocation = $('library').hidden
+    ? { view: 'editor', path: editorPath, fileName: directory instanceof BrowserDirectory ? directory.fileName ?? undefined : undefined }
+    : { view: 'library', path: libraryPath, trash: inTrash }
+  try { localStorage.setItem(locationKey, JSON.stringify(location)) } catch { /* Storage may be unavailable. */ }
+}
 
 function toast(text: string, duration = 6000) {
   $('toast').textContent = text
@@ -109,7 +131,7 @@ async function loadDocument(data: MindElixirData) {
   ai.reset()
   loading = true
   try {
-    if (!$('library').hidden) showEditor()
+    if (!restoringLocation && !$('library').hidden) showEditor()
     settings = withTextDefaults(settingsFrom(data))
     mind.clearSelection()
     selectedId = ''
@@ -128,6 +150,7 @@ async function loadDocument(data: MindElixirData) {
 
 const session = new FolderSession(snapshot, loadDocument, updateSaveState)
 function updateSaveState(state: SaveState, detail: string) {
+  if (state === 'saved') rememberLocation()
   $('editor').dataset.saveState = state
   // Never allow editing a placeholder for a remembered file we could not read.
   const blocked = state === 'loading' || (!!session.directory && !session.hasLoadedDirectory)
@@ -538,6 +561,7 @@ async function refreshLibrary() {
   }
   $('library-error').hidden = true
   drawLibrary()
+  rememberLocation()
 }
 
 function closeCreateMenu() {
@@ -665,6 +689,7 @@ function drawLibrary() {
         await refreshLibrary()
       } else {
         const handle = await libraryDirectory()
+        editorPath = [...libraryPath]
         if (handle && await session.connect(new BrowserDirectory(handle as WritableDirectoryHandle, entry.fileName))) showEditor()
       }
     })))
@@ -740,6 +765,7 @@ async function libraryAction(action: () => Promise<void>) {
 function showEditor() {
   $('library').hidden = true
   $('editor').hidden = false
+  rememberLocation()
   requestAnimationFrame(() => { mind.toCenter(); mind.container.focus() })
 }
 async function showLibrary() {
@@ -820,6 +846,7 @@ on('create-new-map', () => libraryAction(async () => {
   const handle = await libraryDirectory()
   if (!handle) { if (!folderDialog.open) folderDialog.showModal(); return }
   const directory = new BrowserDirectory(handle as WritableDirectoryHandle, null)
+  editorPath = [...libraryPath]
   if (!await session.connect(directory)) return
   // A new map gets a distinct root title, which also defines its filename.
   const files = new Set((await listMaps(handle)).map(entry => entry.fileName.toLocaleLowerCase()))
@@ -841,7 +868,7 @@ async function chooseFolder() {
   selectingFolder = true
   try {
     const handle = await pickDirectory({ mode: 'readwrite', id: 'arbol-map-folder' })
-    libraryRoot = handle; libraryPath = []; pendingTransfer = null
+    libraryRoot = handle; libraryPath = []; editorPath = []; pendingTransfer = null
     const connected = await session.connect(new BrowserDirectory(handle))
     try { await rememberDirectory(handle) } catch { toast('El navegador no pudo recordar la carpeta para la próxima visita.') }
     if (connected) {
@@ -975,10 +1002,35 @@ if (!pickDirectory) showUnsupported()
 else {
   try {
     const handle = await rememberedDirectory()
-    if (handle) { libraryRoot = handle; await session.connect(new BrowserDirectory(handle)) }
+    if (handle) {
+      libraryRoot = handle
+      libraryPath = [...(initialLocation?.path ?? [])]
+      editorPath = [...libraryPath]
+      inTrash = initialLocation?.trash === true
+      if (initialLocation?.view === 'library') {
+        await session.connect(new BrowserDirectory(handle, null))
+        $('editor').hidden = true; $('library').hidden = false
+        await libraryAction(async () => {
+          try { await refreshLibrary() }
+          catch { libraryPath = []; inTrash = false; await refreshLibrary() }
+        })
+      } else {
+        try {
+          const directory = await directoryAt(handle, editorPath) as WritableDirectoryHandle
+          if (initialLocation?.fileName) await directory.getFileHandle(initialLocation.fileName)
+          await session.connect(new BrowserDirectory(directory, initialLocation?.fileName))
+        } catch {
+          libraryPath = []; inTrash = false
+          $('editor').hidden = true; $('library').hidden = false
+          await libraryAction(refreshLibrary)
+        }
+      }
+    }
     else { folderDialog.showModal(); updateSaveState(session.state, session.detail) }
   } catch {
     $('folder-dialog-message').textContent = 'No se pudo recuperar la carpeta anterior. Seleccionala nuevamente.'
     folderDialog.showModal()
   }
 }
+restoringLocation = false
+rememberLocation()
