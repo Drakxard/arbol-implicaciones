@@ -1,5 +1,5 @@
 import type { MindElixirData, NodeObj } from 'mind-elixir'
-import { parseDocument, settingsFrom } from './document'
+import { newDocument, parseDocument, settingsFrom } from './document'
 import { mapFileName, type LibraryEntry } from './storage'
 
 export function validFolderName(name: string) {
@@ -157,7 +157,7 @@ export async function copyMap(source: FileSystemDirectoryHandle, destination: Fi
   await writeNewMap(destination, mapFileName(topic), JSON.stringify(data, null, 2))
 }
 
-export interface TrashedMap extends LibraryEntry { path: string[] }
+export interface TrashedMap extends LibraryEntry { path: string[]; folderId?: string }
 export async function listTrash(root: FileSystemDirectoryHandle): Promise<TrashedMap[]> {
   let trash: FileSystemDirectoryHandle
   try { trash = await root.getDirectoryHandle('.papelera') }
@@ -165,7 +165,7 @@ export async function listTrash(root: FileSystemDirectoryHandle): Promise<Trashe
   const maps: TrashedMap[] = []
   async function visit(directory: FileSystemDirectoryHandle, path: string[]) {
     for await (const entry of (directory as unknown as { values(): AsyncIterableIterator<FileSystemHandle> }).values()) {
-      if (entry.kind === 'directory') await visit(entry as FileSystemDirectoryHandle, [...path, entry.name])
+      if (entry.kind === 'directory' && !(path.length === 0 && entry.name === '.folders')) await visit(entry as FileSystemDirectoryHandle, [...path, entry.name])
       else if (entry.name.endsWith('.json')) {
         const text = await (await (entry as FileSystemFileHandle).getFile()).text()
         try { maps.push({ fileName: entry.name, path, data: parseDocument(text) }) } catch { /* Other files are never deleted as maps. */ }
@@ -173,6 +173,15 @@ export async function listTrash(root: FileSystemDirectoryHandle): Promise<Trashe
     }
   }
   await visit(trash, [])
+  try {
+    const folders = await trash.getDirectoryHandle('.folders')
+    for await (const item of directoryEntries(folders)) {
+      if (item.kind !== 'directory') continue
+      const entry = await readFolderTrash(root, item.name)
+      const data = newDocument(); data.nodeData.topic = entry.name
+      maps.push({ fileName: entry.name, path: entry.path, folderId: item.name, data })
+    }
+  } catch (error) { if (!(error instanceof DOMException) || error.name !== 'NotFoundError') throw error }
   return maps.sort((a, b) => (b.data.meta?.editor?.updatedAt ?? '').localeCompare(a.data.meta?.editor?.updatedAt ?? ''))
 }
 
@@ -188,6 +197,13 @@ export async function trashMap(root: FileSystemDirectoryHandle, path: string[], 
 }
 
 export async function restoreMap(root: FileSystemDirectoryHandle, entry: TrashedMap) {
+  if (entry.folderId) {
+    const item = await readFolderTrash(root, entry.folderId)
+    const destination = await restoreParent(root, item.path)
+    await copyFolderTo(item.content, destination, item.name)
+    await item.container.removeEntry(entry.folderId, { recursive: true })
+    return
+  }
   const trash = await root.getDirectoryHandle('.papelera')
   const source = await directoryAt(trash, entry.path)
   let destination: FileSystemDirectoryHandle = root
@@ -200,10 +216,86 @@ export async function restoreMap(root: FileSystemDirectoryHandle, entry: Trashed
 }
 
 export async function deleteTrashedMap(root: FileSystemDirectoryHandle, entry: TrashedMap) {
+  if (entry.folderId) {
+    const item = await readFolderTrash(root, entry.folderId)
+    await item.container.removeEntry(entry.folderId, { recursive: true })
+    return
+  }
   // Only a single validated map inside the selected library's trash is removed.
   if (!entry.fileName.endsWith('.json') || /[/\\]/.test(entry.fileName)) throw new Error('El archivo no es un mapa de la papelera.')
   const trash = await root.getDirectoryHandle('.papelera')
   const directory = await directoryAt(trash, entry.path)
   parseDocument(await (await (await directory.getFileHandle(entry.fileName)).getFile()).text())
   await directory.removeEntry(entry.fileName)
+}
+
+function directoryEntries(directory: FileSystemDirectoryHandle) {
+  return (directory as unknown as { values(): AsyncIterableIterator<FileSystemHandle> }).values()
+}
+async function requireUnused(parent: FileSystemDirectoryHandle, name: string) {
+  for await (const item of directoryEntries(parent)) {
+    if (item.name.toLocaleLowerCase() === name.toLocaleLowerCase()) throw new Error(`Ya existe «${name}» en la carpeta de destino.`)
+  }
+}
+async function copyContents(source: FileSystemDirectoryHandle, destination: FileSystemDirectoryHandle) {
+  for await (const entry of directoryEntries(source)) {
+    if (entry.kind === 'directory') {
+      await copyContents(entry as FileSystemDirectoryHandle, await destination.getDirectoryHandle(entry.name, { create: true }))
+    } else {
+      const blob = await (entry as FileSystemFileHandle).getFile()
+      const stream = await (await destination.getFileHandle(entry.name, { create: true })).createWritable()
+      try { await stream.write(blob); await stream.close() }
+      catch (error) { await stream.abort().catch(() => {}); throw error }
+    }
+  }
+}
+async function copyFolderTo(source: FileSystemDirectoryHandle, parent: FileSystemDirectoryHandle, name: string) {
+  if (!validFolderName(name)) throw new Error('Escribí un nombre de carpeta válido.')
+  await requireUnused(parent, name)
+  const destination = await parent.getDirectoryHandle(name, { create: true })
+  try { await copyContents(source, destination) }
+  catch (error) { await parent.removeEntry(name, { recursive: true }).catch(() => {}); throw error }
+}
+export async function renameLibraryFolder(root: FileSystemDirectoryHandle, path: string[], name: string, next: string) {
+  if (!validFolderName(name) || !validFolderName(next)) throw new Error('Escribí un nombre de carpeta válido.')
+  if (name === next) return
+  const parent = await directoryAt(root, path)
+  const source = await parent.getDirectoryHandle(name)
+  if (!await isLibraryFolder(source)) throw new Error('La carpeta no pertenece a la biblioteca.')
+  await copyFolderTo(source, parent, next)
+  await parent.removeEntry(name, { recursive: true })
+}
+export async function trashFolder(root: FileSystemDirectoryHandle, path: string[], name: string) {
+  if (!validFolderName(name)) throw new Error('La carpeta no es válida.')
+  const parent = await directoryAt(root, path)
+  const source = await parent.getDirectoryHandle(name)
+  if (!await isLibraryFolder(source)) throw new Error('La carpeta no pertenece a la biblioteca.')
+  const trash = await root.getDirectoryHandle('.papelera', { create: true })
+  const container = await trash.getDirectoryHandle('.folders', { create: true })
+  const id = crypto.randomUUID()
+  const item = await container.getDirectoryHandle(id, { create: true })
+  try {
+    await copyContents(source, await item.getDirectoryHandle('content', { create: true }))
+    const stream = await (await item.getFileHandle('origin.json', { create: true })).createWritable()
+    try { await stream.write(JSON.stringify({ name, path })); await stream.close() }
+    catch (error) { await stream.abort().catch(() => {}); throw error }
+  } catch (error) { await container.removeEntry(id, { recursive: true }).catch(() => {}); throw error }
+  await parent.removeEntry(name, { recursive: true })
+}
+async function readFolderTrash(root: FileSystemDirectoryHandle, id: string) {
+  if (!/^[\da-f-]{36}$/.test(id)) throw new Error('Carpeta de papelera inválida.')
+  const container = await (await root.getDirectoryHandle('.papelera')).getDirectoryHandle('.folders')
+  const item = await container.getDirectoryHandle(id)
+  const origin = JSON.parse(await (await (await item.getFileHandle('origin.json')).getFile()).text())
+  if (!validFolderName(origin.name) || !Array.isArray(origin.path) || !origin.path.every((name: unknown) => typeof name === 'string' && validFolderName(name))) throw new Error('Origen de papelera inválido.')
+  return { container, name: origin.name as string, path: origin.path as string[], content: await item.getDirectoryHandle('content') }
+}
+async function restoreParent(root: FileSystemDirectoryHandle, path: string[]) {
+  let parent = root
+  for (const name of path) {
+    const child = await directoryAt(parent, [name], true)
+    if (!await isLibraryFolder(child)) await createLibraryFolder(parent, name)
+    parent = child
+  }
+  return parent
 }

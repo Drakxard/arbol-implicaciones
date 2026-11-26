@@ -3,7 +3,7 @@ import { es } from 'mind-elixir/i18n'
 import { defaultSettings, newDocument, settingsFrom, safeLink, safeImage, parseDocument, type EditorSettings } from './document'
 import { BrowserDirectory, FolderSession, rememberDirectory, rememberedDirectory, type WritableDirectoryHandle, type SaveState, listMaps, mapFileName, type LibraryEntry } from './storage'
 import { renderApp, emojis } from './view'
-import { mapPreview, moveMap, copyMap, directoryAt, listFolders, createLibraryFolder, trashMap, listTrash, restoreMap, deleteTrashedMap, type TrashedMap } from './library'
+import { mapPreview, moveMap, copyMap, directoryAt, listFolders, createLibraryFolder, renameLibraryFolder, trashFolder, trashMap, listTrash, restoreMap, deleteTrashedMap, type TrashedMap } from './library'
 import { icon } from './icons'
 import { renderMarkdown } from './markdown'
 import { installCanvasPan } from './pan'
@@ -131,6 +131,7 @@ async function loadDocument(data: MindElixirData) {
   ai.reset()
   loading = true
   try {
+    setPanelCollapsed(true)
     if (!restoringLocation && !$('library').hidden) showEditor()
     settings = withTextDefaults(settingsFrom(data))
     mind.clearSelection()
@@ -447,11 +448,12 @@ on('image-fit', () => {
 }, 'change')
 on('image-clear', () => { imageRequest++; return patchNode({ image: undefined }) })
 
-on('collapse-panel', () => {
-  const collapsed = $('inspector').classList.toggle('collapsed')
+function setPanelCollapsed(collapsed: boolean) {
+  $('inspector').classList.toggle('collapsed', collapsed)
   $('collapse-panel').setAttribute('aria-expanded', String(!collapsed))
   $('collapse-panel').setAttribute('aria-label', collapsed ? 'Expandir panel' : 'Contraer panel')
-})
+}
+on('collapse-panel', () => setPanelCollapsed(!$('inspector').classList.contains('collapsed')))
 on('center', () => navigation.active ? navigation.fit() : mind.toCenter())
 on('zoom-out', () => navigation.canvas.scale(navigation.canvas.scaleVal - .1))
 on('zoom-in', () => navigation.canvas.scale(navigation.canvas.scaleVal + .1))
@@ -537,6 +539,9 @@ let libraryRoot: WritableDirectoryHandle | null = null
 let libraryPath: string[] = []
 let inTrash = false
 let libraryBusy = false
+const selectedLibraryItems = new Set<string>()
+let selectionAnchor = ''
+let explicitLibrarySelection = false
 type Transfer = { mode: 'move' | 'copy'; entry: LibraryEntry; source: FileSystemDirectoryHandle; path: string[] }
 let pendingTransfer: Transfer | null = null
 let draggedMap: { entry: LibraryEntry; path: string[] } | null = null
@@ -550,6 +555,8 @@ async function libraryDirectory() {
   catch (error) { if (error instanceof DOMException && error.name === 'NotFoundError') return null; throw error }
 }
 async function refreshLibrary() {
+  selectedLibraryItems.clear()
+  explicitLibrarySelection = false
   const root = folderHandle()
   if (inTrash) {
     libraryEntries = root ? await listTrash(root) : []
@@ -647,6 +654,73 @@ function trashContextMenu(event: MouseEvent, entry: TrashedMap) {
   menu.style.top = `${Math.max(8, Math.min(event.clientY, innerHeight - box.height - 8))}px`
   menu.querySelector('button')?.focus({ preventScroll: true })
 }
+function updateLibrarySelection() {
+  for (const card of $('library-cards').querySelectorAll<HTMLElement>('[data-item]')) {
+    const selected = selectedLibraryItems.has(card.dataset.item!)
+    card.classList.toggle('library-selected', selected)
+    card.querySelector('button')?.setAttribute('aria-pressed', String(selected))
+  }
+}
+function selectLibraryItem(event: MouseEvent, key: string) {
+  if (!(event.ctrlKey || event.metaKey || event.shiftKey)) return false
+  explicitLibrarySelection = true
+  event.preventDefault()
+  if (event.shiftKey) {
+    const keys = Array.from($('library-cards').querySelectorAll<HTMLElement>('[data-item]'), card => card.dataset.item!)
+    const start = keys.indexOf(selectionAnchor), end = keys.indexOf(key)
+    for (const item of keys.slice(Math.max(0, Math.min(start, end)), Math.max(start, end) + 1)) selectedLibraryItems.add(item)
+  } else {
+    if (selectedLibraryItems.has(key)) selectedLibraryItems.delete(key); else selectedLibraryItems.add(key)
+    selectionAnchor = key
+  }
+  updateLibrarySelection()
+  return true
+}
+async function trashSelection() {
+  const root = folderHandle()
+  if (!root || !selectedLibraryItems.size || inTrash) return
+  const keys = [...selectedLibraryItems]
+  if (!confirm(`¿Llevar a la papelera ${keys.length === 1 ? 'el elemento seleccionado' : `los ${keys.length} elementos seleccionados`}? Las carpetas incluyen todo su contenido.`)) return
+  try {
+    for (const key of keys) {
+      if (key.startsWith('folder:')) await trashFolder(root, libraryPath, key.slice(7))
+      else await trashMap(root, libraryPath, key.slice(4))
+    }
+  } finally { await refreshLibrary() }
+}
+function libraryContextMenu(event: MouseEvent, key?: string) {
+  if (inTrash || pendingTransfer) return
+  event.preventDefault(); event.stopPropagation()
+  if (key && !selectedLibraryItems.has(key)) { selectedLibraryItems.clear(); selectedLibraryItems.add(key); explicitLibrarySelection = false }
+  if (!selectedLibraryItems.size) { closeLibraryContextMenu(); return }
+  updateLibrarySelection()
+  const menu = $('library-context-menu'); menu.replaceChildren()
+  const actions: [string, () => Promise<void>][] = []
+  if (!explicitLibrarySelection && selectedLibraryItems.size === 1 && key?.startsWith('folder:')) {
+    actions.push(['Renombrar', async () => {
+      const name = key.slice(7), next = prompt('Nombre de la carpeta', name)?.trim()
+      const root = folderHandle()
+      if (!root || !next || name === next) return
+      await renameLibraryFolder(root, libraryPath, name, next)
+      await refreshLibrary()
+    }])
+  }
+  actions.push(['Borrar', trashSelection])
+  for (const [label, action] of actions) {
+    const button = document.createElement('button'); button.type = 'button'; button.textContent = label; button.setAttribute('role', 'menuitem')
+    button.addEventListener('click', run(() => { closeLibraryContextMenu(); return libraryAction(action) }))
+    menu.append(button)
+  }
+  menu.hidden = false
+  const box = menu.getBoundingClientRect()
+  menu.style.left = `${Math.max(8, Math.min(event.clientX, innerWidth - box.width - 8))}px`
+  menu.style.top = `${Math.max(8, Math.min(event.clientY, innerHeight - box.height - 8))}px`
+  menu.querySelector('button')?.focus({ preventScroll: true })
+}
+$('library-cards').addEventListener('contextmenu', event => libraryContextMenu(event))
+$('library-cards').addEventListener('click', event => {
+  if (event.target === $('library-cards')) { selectedLibraryItems.clear(); explicitLibrarySelection = false; updateLibrarySelection() }
+})
 function drawLibrary() {
   closeLibraryContextMenu(); closeCreateMenu()
   $('library-home').setAttribute('aria-current', inTrash ? 'false' : 'page')
@@ -662,20 +736,33 @@ function drawLibrary() {
   const folders = libraryFolders.filter(name => name.toLocaleLowerCase('es').includes(query))
   for (const name of folders) {
     const card = document.createElement('article'); card.className = 'folder-card'
+    const key = `folder:${name}`; card.dataset.item = key
+    card.addEventListener('contextmenu', event => libraryContextMenu(event, key))
     const button = document.createElement('button'); button.type = 'button'; button.className = 'folder-card-open'; button.setAttribute('aria-label', `Abrir carpeta ${name}`)
     const image = document.createElement('div'); image.className = 'folder-preview'; image.innerHTML = icon('folder')
     const label = document.createElement('div'); label.className = 'map-card-info'; label.textContent = name
     button.append(image, label); card.append(button)
     const path = [...libraryPath, name]
-    button.addEventListener('click', run(() => libraryAction(() => navigateLibrary(path))))
+    button.addEventListener('click', event => {
+      if (!selectLibraryItem(event, key)) { selectedLibraryItems.clear(); void libraryAction(() => navigateLibrary(path)) }
+    })
     setDropTarget(card, path); cards.append(card)
   }
   for (const entry of entries) {
     const card = document.createElement('article'); card.className = 'map-card'
+    const key = `map:${entry.fileName}`; card.dataset.item = key
+    if (!inTrash) {
+      card.addEventListener('contextmenu', event => libraryContextMenu(event, key))
+      card.addEventListener('click', event => {
+        if ((event.target as Element).closest('.map-card-open') && selectLibraryItem(event, key)) event.stopImmediatePropagation()
+      }, true)
+    }
     const open = document.createElement('button'); open.type = 'button'; open.className = 'map-card-open'
     open.setAttribute('aria-label', `${inTrash ? 'Restaurar' : 'Abrir'} ${entry.data.nodeData.topic}`)
     open.disabled = !!pendingTransfer
-    const preview = document.createElement('div'); preview.className = 'map-preview'; preview.append(mapPreview(entry))
+    const preview = document.createElement('div'); preview.className = 'map-preview'
+    if ((entry as TrashedMap).folderId) { preview.innerHTML = icon('folder'); open.setAttribute('aria-label', `Restaurar carpeta ${entry.data.nodeData.topic}`) }
+    else preview.append(mapPreview(entry))
     const info = document.createElement('div'); info.className = 'map-card-info'
     const title = document.createElement('div'); title.className = 'map-card-title'; title.textContent = entry.data.nodeData.topic
     const date = document.createElement('time')
@@ -735,10 +822,8 @@ function drawLibrary() {
       const remove = document.createElement('button'); remove.type = 'button'; remove.innerHTML = `${icon('trash')} Mover a la papelera`
       remove.disabled = !!pendingTransfer
       remove.addEventListener('click', run(() => libraryAction(async () => {
-        const handle = folderHandle()
-        if (!handle) return
-        await trashMap(handle, libraryPath, entry.fileName)
-        await refreshLibrary()
+        selectedLibraryItems.clear(); selectedLibraryItems.add(key)
+        await trashSelection()
       })))
       actions.append(exports, remove); menu.append(summary, actions); card.append(menu)
     } else {
@@ -752,6 +837,7 @@ function drawLibrary() {
     }
     cards.append(card)
   }
+  updateLibrarySelection()
   $('library-empty').hidden = entries.length + folders.length > 0
   $('library-empty').textContent = query ? 'No se encontraron mapas.' : inTrash ? 'La papelera está vacía. Hacé clic en un mapa para restaurarlo.' : 'No hay mapas en esta carpeta.'
 }
@@ -933,6 +1019,14 @@ document.addEventListener('keydown', event => {
   }
   if (document.querySelector('dialog[open]')) return
   if (!$('library').hidden) {
+    const typing = (event.target as HTMLElement).closest('input, textarea, [contenteditable=true]')
+    if (mod && key === 'a' && !typing && !inTrash) {
+      explicitLibrarySelection = true
+      event.preventDefault(); selectedLibraryItems.clear()
+      for (const card of $('library-cards').querySelectorAll<HTMLElement>('[data-item]')) selectedLibraryItems.add(card.dataset.item!)
+      updateLibrarySelection()
+    }
+    if (event.key === 'Escape') { selectedLibraryItems.clear(); updateLibrarySelection() }
     if (mod && key === 'f') { event.preventDefault(); field('library-search').focus() }
     if (mod && key === 's') event.preventDefault()
     return

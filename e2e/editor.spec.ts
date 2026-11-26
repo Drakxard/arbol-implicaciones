@@ -25,13 +25,14 @@ async function fileSystem(page: Page, initial: string | null = null) {
     }
   }, { initial })
 }
-async function connect(page: Page) {
+async function connect(page: Page, expandPanel = true) {
   await page.goto('/')
   await expect(page.locator('#folder-dialog')).toBeVisible()
   await page.locator('#folder-start').click()
   await expect(page.getByRole('dialog', { name: 'Tu mapa, en tu carpeta' })).not.toBeVisible()
   await expect(page.locator('#editor')).not.toHaveAttribute('data-save-state', 'loading')
   if (await page.locator('#editor').getAttribute('data-save-state') === 'saved') await expect(page.locator('#map')).not.toHaveAttribute('inert', '')
+  if (expandPanel) await page.getByRole('button', { name: 'Expandir panel', exact: true }).click()
 }
 async function readFile(page: Page) {
   return page.evaluate(async () => {
@@ -51,6 +52,107 @@ async function readFile(page: Page) {
 async function root(page: Page) { return page.locator('.me-root > .me-tpc') }
 
 const aiCredential = `v1.${'x'.repeat(80)}`
+test('biblioteca renombra carpetas y restaura selección mixta con todo su contenido', async ({ page }) => {
+  test.setTimeout(90000)
+  await fileSystem(page); await connect(page, false)
+  await expect(page.locator('#inspector')).toHaveClass('collapsed')
+  await renameRoot(page, 'Pizarra raíz')
+  await page.getByRole('button', { name: 'Volver a la biblioteca' }).click()
+  await createFolder(page, 'Curso')
+  await page.getByRole('button', { name: 'Abrir carpeta Curso', exact: true }).click()
+  await createFolder(page, 'Unidad')
+  await page.getByRole('button', { name: 'Abrir carpeta Unidad', exact: true }).click()
+  await createMap(page); await renameRoot(page, 'Tema anidado')
+  await page.getByRole('button', { name: 'Volver a la biblioteca' }).click()
+  await page.getByRole('button', { name: 'Todas las carpetas', exact: true }).click()
+  await page.getByRole('button', { name: 'Abrir carpeta Curso', exact: true }).click({ button: 'right' })
+  await expect(page.getByRole('menuitem')).toHaveText(['Renombrar', 'Borrar'])
+  page.once('dialog', dialog => dialog.accept('Curso nuevo'))
+  await page.getByRole('menuitem', { name: 'Renombrar', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Abrir carpeta Curso nuevo', exact: true })).toBeVisible()
+  const snapshot = () => page.evaluate(async () => {
+    const root = await (await navigator.storage.getDirectory()).getDirectoryHandle('Mapas de prueba')
+    const result: Record<string, string> = {}
+    async function visit(directory: FileSystemDirectoryHandle, prefix: string) {
+      for await (const entry of (directory as unknown as { values(): AsyncIterableIterator<FileSystemHandle> }).values()) {
+        if (entry.name === '.papelera') continue
+        if (entry.kind === 'directory') await visit(entry as FileSystemDirectoryHandle, `${prefix}${entry.name}/`)
+        else result[prefix + entry.name] = await (await (entry as FileSystemFileHandle).getFile()).text()
+      }
+    }
+    await visit(root, '')
+    return result
+  })
+  const before = await snapshot()
+  await page.keyboard.press('Control+a')
+  await expect(page.locator('.library-selected')).toHaveCount(2)
+  await page.locator('.folder-card').click({ button: 'right' })
+  await expect(page.getByRole('menuitem')).toHaveText(['Borrar'])
+  page.once('dialog', dialog => dialog.dismiss())
+  await page.getByRole('menuitem', { name: 'Borrar', exact: true }).click()
+  expect(await snapshot()).toEqual(before)
+  await page.locator('.folder-card').click({ button: 'right' })
+  page.once('dialog', dialog => dialog.accept())
+  await page.getByRole('menuitem', { name: 'Borrar', exact: true }).click()
+  await expect(page.locator('#library-cards > article')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Papelera de reciclaje', exact: true }).click()
+  await expect(page.locator('.map-card')).toHaveCount(2)
+  await page.getByRole('button', { name: 'Restaurar carpeta Curso nuevo', exact: true }).click()
+  await page.getByRole('button', { name: 'Restaurar Pizarra raíz', exact: true }).click()
+  await expect(page.locator('.map-card')).toHaveCount(0)
+  expect(await snapshot()).toEqual(before)
+  await page.getByRole('button', { name: 'Biblioteca', exact: true }).click()
+  await page.getByRole('button', { name: 'Abrir carpeta Curso nuevo', exact: true }).click()
+  await page.getByRole('button', { name: 'Abrir carpeta Unidad', exact: true }).click()
+  await page.getByRole('button', { name: 'Abrir Tema anidado', exact: true }).click()
+  await expect(page.locator('#inspector')).toHaveClass('collapsed')
+  await expect(await root(page)).toHaveText('Tema anidado')
+})
+
+test('biblioteca selecciona con Ctrl sin incluir elementos de otras carpetas y rechaza conflictos', async ({ page }) => {
+  await fileSystem(page); await connect(page); await renameRoot(page, 'Suelta')
+  await page.getByRole('button', { name: 'Volver a la biblioteca' }).click()
+  await createFolder(page, 'A'); await createFolder(page, 'B')
+  await page.getByRole('button', { name: 'Abrir carpeta A', exact: true }).click({ button: 'right' })
+  page.once('dialog', dialog => dialog.accept('B'))
+  await page.getByRole('menuitem', { name: 'Renombrar', exact: true }).click()
+  await expect(page.locator('#library-error')).toContainText('Ya existe')
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'Abrir carpeta A', exact: true }).click({ modifiers: ['Control'] })
+  await page.getByRole('button', { name: 'Abrir Suelta', exact: true }).click({ modifiers: ['Control'] })
+  await expect(page.locator('.library-selected')).toHaveCount(2)
+  await page.locator('.map-card').click({ button: 'right' })
+  await expect(page.getByRole('menuitem')).toHaveText(['Borrar'])
+  page.once('dialog', dialog => dialog.accept())
+  await page.getByRole('menuitem', { name: 'Borrar', exact: true }).click()
+  await expect.poll(() => directoryNames(page)).toEqual(['.papelera', 'B'])
+  await page.getByRole('button', { name: 'Abrir carpeta B', exact: true }).click()
+  await page.keyboard.press('Control+a')
+  await expect(page.locator('.library-selected')).toHaveCount(0)
+})
+
+test('biblioteca conserva carpetas si falla el borrado y evita sobrescribir al restaurar', async ({ page }) => {
+  await fileSystem(page); await connect(page)
+  await page.getByRole('button', { name: 'Volver a la biblioteca' }).click()
+  await createFolder(page, 'Segura')
+  await page.evaluate(() => sessionStorage.setItem('failWrite', 'yes'))
+  await page.locator('.folder-card').click({ button: 'right' })
+  page.once('dialog', dialog => dialog.accept())
+  await page.getByRole('menuitem', { name: 'Borrar', exact: true }).click()
+  await expect(page.locator('#library-error')).toBeVisible()
+  expect(await directoryNames(page)).toContain('Segura')
+  await page.evaluate(() => sessionStorage.removeItem('failWrite'))
+  await page.locator('.folder-card').click({ button: 'right' })
+  page.once('dialog', dialog => dialog.accept())
+  await page.getByRole('menuitem', { name: 'Borrar', exact: true }).click()
+  await expect(page.locator('.folder-card')).toHaveCount(0)
+  await createFolder(page, 'Segura')
+  await page.getByRole('button', { name: 'Papelera de reciclaje', exact: true }).click()
+  await page.getByRole('button', { name: 'Restaurar carpeta Segura', exact: true }).click()
+  await expect(page.locator('#library-error')).toContainText('Ya existe')
+  await expect(page.locator('.map-card')).toHaveCount(1)
+})
+
 const aiDocument = { direction: 1, nodeData: { id: 'root', topic: 'Tema', children: [
   { id: 'branch', topic: 'Estudio', children: [{ id: 'one', topic: '$P(A)$' }, { id: 'two', topic: 'Segundo concepto' }] },
   { id: 'hidden', topic: 'Rama privada', note: 'No compartir', children: [{ id: 'hidden-leaf', topic: 'Oculto' }] },
@@ -62,6 +164,37 @@ async function aiSetup(page: Page, configured = true) {
   await connect(page)
   await page.emulateMedia({ reducedMotion: 'reduce' })
 }
+
+test('Groq mantiene zoom al escribir Enter y conserva conexiones al salir del recorrido', async ({ page }) => {
+  await aiSetup(page)
+  await page.route('**/api/groq/branch', route => route.fulfill({ json: aiResponse }))
+  const scale = () => page.locator('#walk-map .map-canvas').evaluate(element => new DOMMatrix(getComputedStyle(element).transform).a)
+  await page.keyboard.press('*'); await page.keyboard.type('Ejemplo')
+  await expect(page.locator('#ai-composer')).toBeVisible()
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  const before = await scale()
+  for (let i = 0; i < 4; i++) { await page.keyboard.press('Enter'); await page.keyboard.type('otra línea') }
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  expect(await scale()).toBeCloseTo(before, 5)
+  await page.keyboard.press('Control+Enter')
+  await expect(page.locator('#ai-composer')).toBeHidden()
+  await expect(page.locator('#walk-map .me-tpc')).toHaveCount(8)
+  await page.keyboard.press('Escape')
+  await expect(page.locator('#walk-map')).toBeHidden()
+  await expect(page.locator('#map .me-tpc')).toHaveCount(8)
+  const connections = await page.locator('#map svg.lines > path').evaluateAll(paths => paths.map(path => {
+    const box = (path as SVGPathElement).getBBox()
+    return { width: box.width, height: box.height }
+  }))
+  expect(connections.length).toBeGreaterThan(0)
+  for (const connection of connections) expect(connection.width).toBeGreaterThan(20)
+  const saved = await readFile(page)
+  expect(saved.nodeData.children[0].children[0].children[0].topic).toBe('**Ejemplo**')
+  expect(saved.nodeData.children[1]).toEqual(aiDocument.nodeData.children[1])
+  await page.reload()
+  await expect(page.locator('#map .me-tpc')).toHaveCount(8)
+  await expect(page.locator('#inspector')).toHaveClass('collapsed')
+})
 
 test('Groq configura credencial cifrada en biblioteca, permite desactivar y olvidar', async ({ page }) => {
   const apiKey = 'gsk_ui_test_1234567890'
@@ -448,6 +581,7 @@ test('recorrido de un único nodo respeta límites, repetición de asterisco y d
 async function createMap(page: Page) {
   await page.getByRole('button', { name: 'Crear nuevo', exact: true }).click()
   await page.getByRole('button', { name: 'Mapa', exact: true }).click()
+  await page.getByRole('button', { name: 'Expandir panel', exact: true }).click()
 }
 async function createFolder(page: Page, name: string) {
   await page.getByRole('button', { name: 'Crear nuevo', exact: true }).click()
@@ -467,6 +601,7 @@ async function directoryNames(page: Page, path: string[] = []) {
 }
 async function mapOptions(page: Page, topic: string, action: string) {
   await page.getByLabel(`Opciones de ${topic}`, { exact: true }).click()
+  if (action === 'Mover a la papelera') page.once('dialog', dialog => dialog.accept())
   await page.getByRole('button', { name: action, exact: true }).click()
 }
 async function renameRoot(page: Page, title: string) {
@@ -1063,6 +1198,7 @@ test('paneles, etiquetas, iconos, nota, tamaños y deshacer/rehacer', async ({ p
   await page.getByRole('button', { name: 'Deshacer (Ctrl + Z)', exact: true }).click()
   await page.getByRole('button', { name: 'Rehacer (Ctrl + Y)', exact: true }).click()
   await page.reload(); await page.locator('.me-tpc').filter({ hasText: 'Nuevo tema' }).click()
+  await page.getByRole('button', { name: 'Expandir panel', exact: true }).click()
   await page.getByRole('tab', { name: 'Nota', exact: true }).click()
   await expect(page.getByLabel('Nota del nodo')).toHaveValue('Una nota propia')
 })
@@ -1081,6 +1217,7 @@ test('configuración global, historial, ramas y panel contraíble', async ({ pag
   await page.reload()
   await expect(page.getByLabel('Tema', { exact: true })).toHaveValue('Oscuro')
   await expect(page.getByRole('switch', { name: 'Modo compacto' })).toBeChecked()
+  await page.getByRole('button', { name: 'Expandir panel', exact: true }).click()
   await page.getByLabel('Tema', { exact: true }).selectOption('Latte')
   await page.getByRole('button', { name: 'Deshacer (Ctrl + Z)' }).click()
   await expect(page.getByLabel('Tema', { exact: true })).toHaveValue('Oscuro')

@@ -94,8 +94,8 @@ export function renderApp() {
       </section>
       <div id="toast" role="status" hidden></div>
     </section>
-    <aside id="inspector" aria-label="Propiedades del mapa">
-      <button type="button" id="collapse-panel" aria-label="Contraer panel" aria-expanded="true">${icon('chevron')}</button>
+    <aside id="inspector" class="collapsed" aria-label="Propiedades del mapa">
+      <button type="button" id="collapse-panel" aria-label="Expandir panel" aria-expanded="false">${icon('chevron')}</button>
       <div id="global-panel">
         <div class="panel-heading">Configuración</div>
         <div class="panel-body">

@@ -20,7 +20,7 @@ export function installAI(navigation: Navigation, snapshot: () => MindElixirData
   function open(text?: string) {
     composer.hidden = false
     if (text !== undefined) field.value += text
-    resize(); field.focus(); field.setSelectionRange(field.value.length, field.value.length)
+    resize(); field.focus({ preventScroll: true }); field.setSelectionRange(field.value.length, field.value.length)
   }
   function blur() { field.blur(); if (navigation.active) navigation.canvas.container.focus({ preventScroll: true }) }
   function cancel() { epoch++; request?.abort(); request = undefined; composer.removeAttribute('aria-busy') }

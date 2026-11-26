@@ -87,7 +87,7 @@ export function installNavigation(mind: MindElixir, available: () => boolean, ge
     viewer.map.style.transition = 'none'
     const bounds = host.getBoundingClientRect()
     const composer = element('ai-composer')
-    const reserved = composer.hidden ? 0 : composer.getBoundingClientRect().height + 20
+    const reserved = composer.hidden ? 0 : 170
     const height = Math.max(100, bounds.height - reserved)
     viewer.scale(1)
     const boxes = nodes.map(node => node.getBoundingClientRect())
@@ -178,6 +178,9 @@ export function installNavigation(mind: MindElixir, available: () => boolean, ge
     viewer.destroy(); viewer = undefined
     host.hidden = true
     element('map').hidden = false
+    // Layout measured while this canvas was hidden has zero-sized connections.
+    // Redraw once it is visible, preserving styles, zoom and translation.
+    mind.linkDiv()
     element('walk-status').textContent = ''
     element('editor').classList.remove('walking')
     button.setAttribute('aria-pressed', 'false')
@@ -229,7 +232,10 @@ export function installNavigation(mind: MindElixir, available: () => boolean, ge
   host.addEventListener('dblclick', event => { if (pick(event)) { event.preventDefault(); event.stopImmediatePropagation(); beginEdit() } }, true)
   button.addEventListener('click', toggle)
   const observer = new ResizeObserver(() => { if (viewer) { cancelAnimationFrame(frame); frame = requestAnimationFrame(fit) } })
-  observer.observe(host); observer.observe(element('ai-composer'))
+  observer.observe(host)
+  new MutationObserver(() => {
+    if (viewer) { cancelAnimationFrame(frame); frame = requestAnimationFrame(fit) }
+  }).observe(element('ai-composer'), { attributes: true, attributeFilter: ['hidden'] })
   return { toggle, stop, fit, sync, finishEdit, beginEdit,
     get active() { return !!viewer }, get canvas() { return viewer ?? mind }, get targetId() { return targetId }, get revision() { return revision }, get editing() { return !!editing },
     context: () => branchContext(mind.getData().nodeData, steps[index], targetId),
