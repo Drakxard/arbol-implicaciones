@@ -40,7 +40,28 @@ export function validateContext(value: unknown): BranchContext {
     context.path.some((item, index) => index > 0 && item.parentId !== context.path[index - 1].id) ||
     new Set(context.path.map(item => item.id)).size !== context.path.length ||
     new Set(context.illuminated.map(item => item.id)).size !== context.illuminated.length) return fail()
+  const known = new Map(context.illuminated.map(item => [item.id, item]))
+  for (const item of [context.root, context.target, ...context.path]) {
+    const canonical = known.get(item.id)
+    if (!canonical || canonical.topic !== item.topic || canonical.parentId !== item.parentId) return fail()
+  }
+  for (const item of context.illuminated) {
+    if (item.id !== context.root.id && (!item.parentId || !known.has(item.parentId))) return fail()
+  }
   return context
+}
+
+export function validateExpansion(value: unknown, target: Pick<ContextNode, 'topic'>): BranchResult {
+  const result = validateBranch(value)
+  const normalize = (topic: string) => topic.normalize('NFKC').replace(/\s+/g, ' ').trim().toLocaleLowerCase('es')
+  function visit(nodes: GeneratedNode[], parent: string) {
+    for (const node of nodes) {
+      if (normalize(node.topic) === normalize(parent)) throw new Error('La respuesta repite un nodo como su propio hijo.')
+      visit(node.children, node.topic)
+    }
+  }
+  visit(result.children, target.topic)
+  return result
 }
 
 export const branchSchema = {

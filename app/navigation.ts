@@ -87,7 +87,7 @@ export function installNavigation(mind: MindElixir, available: () => boolean, ge
     viewer.map.style.transition = 'none'
     const bounds = host.getBoundingClientRect()
     const composer = element('ai-composer')
-    const reserved = composer.hidden ? 0 : 170
+    const reserved = composer.hidden ? 0 : 190
     const height = Math.max(100, bounds.height - reserved)
     viewer.scale(1)
     const boxes = nodes.map(node => node.getBoundingClientRect())
@@ -107,6 +107,7 @@ export function installNavigation(mind: MindElixir, available: () => boolean, ge
     cameraDepth = camera.depth
     Object.assign(host.dataset, { step: String(index + 1), total: String(steps.length), depth: String(cameraDepth), cameraRoot: camera.rootId, target: targetId })
     element('walk-status').textContent = `Recorrido: ${index + 1} de ${steps.length}. Encuadre: nivel ${cameraDepth}.`
+    host.dispatchEvent(new Event('walk-target-change'))
     cancelAnimationFrame(frame)
     frame = requestAnimationFrame(fit)
   }
@@ -226,6 +227,7 @@ export function installNavigation(mind: MindElixir, available: () => boolean, ge
     const node = (event.target as Element).closest<HTMLElement & { nodeObj: NodeObj }>('.me-tpc')
     if (!node || !(node.classList.contains('walk-local') || node.classList.contains('walk-trail'))) return false
     targetId = node.nodeObj.id; revision++; highlight(); host.dataset.target = targetId
+    host.dispatchEvent(new Event('walk-target-change'))
     return true
   }
   host.addEventListener('click', event => { if (pick(event)) { event.stopImmediatePropagation(); viewer?.container.focus({ preventScroll: true }) } }, true)

@@ -2,7 +2,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
 import { sealCredential, openCredential, handleGroq } from '../server/groq'
-import { validateBranch, validateContext, GROQ_MODEL, type GeneratedNode } from '../shared/groq'
+import { validateBranch, validateExpansion, validateContext, GROQ_MODEL, type GeneratedNode } from '../shared/groq'
+import { branchMessages } from '../server/groq-prompt'
 import { appendBranch, branchContext } from '../app/ai-context'
 import { walkSteps } from '../app/walk'
 import { listEdit, listNewline } from '../app/composer'
@@ -15,6 +16,34 @@ const root = { id: 'root', topic: '$P(A)$', children: [
 const context = () => branchContext(root, walkSteps(root)[0], 'a1')
 const result = { children: [{ topic: 'Ejemplo', children: [{ topic: '$x=2$', children: [] }] }] }
 const request = (body: unknown, origin = 'https://app.test') => new Request('https://app.test/api/groq/branch', { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origin }, body: JSON.stringify(body) })
+
+test('pedido al modelo separa el contexto y conserva literalmente la instrucción completa', () => {
+  const instruction = String.raw`¿Podés dar dos ejemplos concretos?
+- Uno con $P(A \cap B)$.
+- Explicá el resultado, sin repetir "Probabilidad".`
+  const messages = branchMessages(context(), instruction)
+  assert.equal(messages[0].role, 'system')
+  assert.equal(messages.at(-1)!.role, 'user')
+  assert.equal(messages.at(-1)!.content, instruction)
+  const sent = JSON.parse(messages[1].content.split('\n').slice(1).join('\n'))
+  assert.deepEqual(sent.caminoHastaElDestino, context().path)
+  assert.deepEqual(sent.nodoDestinoYaExistente, context().target)
+  assert.deepEqual(sent.nodosIluminados, context().illuminated)
+  assert.ok(!messages[1].content.includes('Privado'))
+})
+
+test('rechaza contexto contradictorio y respuestas que repiten el destino o su propio padre', () => {
+  const original = context()
+  assert.throws(() => validateContext({ ...original, target: { ...original.target, topic: 'Otro destino' } }))
+  assert.throws(() => validateContext({ ...original, illuminated: original.illuminated.slice(1) }))
+  assert.throws(() => validateExpansion({ children: [{ topic: ' probabilidad ', children: [] }] }, { topic: 'Probabilidad' }), /repite/)
+  const repeated = { children: [{ topic: 'Ejemplo clásico', children: [{ topic: 'Probabilidad', children: [{ topic: 'Probabilidad', children: [] }] }] }] }
+  assert.throws(() => validateExpansion(repeated, { topic: 'Resultados posibles' }), /repite/)
+  const before = JSON.stringify(root)
+  assert.throws(() => appendBranch(root, 'a1', repeated), /repite/)
+  assert.equal(JSON.stringify(root), before)
+  assert.deepEqual(validateExpansion(result, { topic: 'Probabilidad' }), result)
+})
 
 test('cifrado autenticado usa IV aleatorio y rechaza datos alterados y otra semilla', () => {
   const secret = randomBytes(32).toString('base64')
@@ -94,12 +123,19 @@ test('servidor configura y genera con modelo y esquema fijos sin devolver claves
     assert.equal(calls[1].body!.reasoning_effort, 'low')
     assert.equal(calls[1].body!.stream, false)
     assert.equal(calls[1].body!.max_completion_tokens, 4096)
+    const messages = calls[1].body!.messages as { role: string; content: string }[]
+    assert.equal(messages.at(-1)!.content, 'Ejemplificar con KaTeX')
+    assert.deepEqual(JSON.parse(messages[1].content.split('\n').slice(1).join('\n')).nodoDestinoYaExistente, context().target)
     assert.equal((await handleGroq(request({}, 'https://evil.test'), 'branch')).status, 403)
     assert.equal((await handleGroq(request({ credential: 'bad', instruction: 'test' }), 'branch')).status, 401)
     assert.equal(calls.length, 2)
     assert.equal((await handleGroq(request({ credential: config.credential, context: {}, instruction: 'test' }), 'branch')).status, 400)
     globalThis.fetch = async () => Response.json({ choices: [{ finish_reason: 'length', message: { content: JSON.stringify(result) } }] })
     assert.equal((await handleGroq(request({ credential: config.credential, context: context(), instruction: 'test' }), 'branch')).status, 502)
+    globalThis.fetch = async () => Response.json({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ children: [{ topic: context().target.topic, children: [] }] }) } }] })
+    const duplicate = await handleGroq(request({ credential: config.credential, context: context(), instruction: 'Dar un ejemplo' }), 'branch')
+    assert.equal(duplicate.status, 502)
+    assert.match((await duplicate.json()).error, /títulos repetidos/)
     globalThis.fetch = async () => new Response(apiKey, { status: 429 })
     const limited = await handleGroq(request({ credential: config.credential, context: context(), instruction: 'test' }), 'branch')
     assert.equal(limited.status, 429)

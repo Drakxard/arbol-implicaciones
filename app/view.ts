@@ -60,7 +60,8 @@ export function renderApp() {
       <div id="walk-map" aria-label="Recorrido del árbol" hidden></div>
       <output id="walk-status" class="sr-only" aria-live="polite"></output>
       <section id="ai-composer" aria-label="Instrucción para ampliar el nodo" hidden>
-        <textarea id="ai-prompt" rows="1" aria-label="Instrucción para Groq" spellcheck="true"></textarea>
+        <div id="ai-target"></div>
+        <textarea id="ai-prompt" rows="1" aria-label="Instrucción para Groq" aria-describedby="ai-target" spellcheck="true"></textarea>
         <div class="composer-format">
           <button type="button" id="ai-bullets" aria-label="Aplicar viñetas" title="Viñetas">${icon('bullets')}</button>
           <button type="button" id="ai-numbers" aria-label="Aplicar numeración" title="Numeración">${icon('numbered')}</button>

@@ -40,6 +40,8 @@ El archivo contiene el JSON nativo de Mind Elixir, imágenes locales en base64 y
 
 ## Groq durante el recorrido
 
+El cuadro de instrucciones muestra **Ampliar: …** con el nodo de destino; al pasar el cursor por ese texto se ve el camino completo. La instrucción se envía literalmente como el último mensaje al modelo, separada del contexto del mapa. Las respuestas que repiten el destino como hijo, o un título como su propio hijo, se rechazan conservando el mapa y el borrador.
+
 En **Biblioteca → Configuración**, ingresá tu clave de Groq y activá la generación. El modelo es `openai/gpt-oss-20b`, con razonamiento `low`, hasta 4096 tokens de salida y respuestas JSON estrictas. Cada respuesta admite hasta 32 nodos nuevos y cinco niveles. La app espera y valida la respuesta completa antes de insertar; no hace streaming ni reintentos automáticos.
 
 Durante el recorrido, empezá a escribir para abrir un editor blanco, sin bordes, al pie del lienzo. El encuadre reserva ese espacio para mantener los nodos destacados a la vista. Los dos iconos permiten alternar viñetas y numeración. **Enter** agrega una línea y continúa listas; una entrada de lista vacía las termina. **Ctrl+Enter** envía y **Escape** devuelve el foco al árbol conservando el borrador. Otro Escape sale del recorrido.

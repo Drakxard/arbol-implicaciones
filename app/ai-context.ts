@@ -1,6 +1,6 @@
 import type { NodeObj } from 'mind-elixir'
 import type { BranchContext, ContextNode, BranchResult } from '../shared/groq'
-import { validateBranch } from '../shared/groq'
+import { validateExpansion } from '../shared/groq'
 import { walkHighlight, type WalkStep } from './walk'
 
 export function nodePath(root: NodeObj, id: string): NodeObj[] {
@@ -27,11 +27,11 @@ export function branchContext(root: NodeObj, step: WalkStep, targetId: string): 
     target: nodes.get(targetId)!, illuminated: [...nodes.values()] }
 }
 export function appendBranch(root: NodeObj, targetId: string, value: BranchResult) {
-  const result = validateBranch(value)
   const next = structuredClone(root)
   const path = nodePath(next, targetId)
   const target = path.at(-1)
   if (!target) throw new Error('El nodo de destino ya no existe.')
+  const result = validateExpansion(value, target)
   const make = (node: BranchResult['children'][number]): NodeObj => ({ id: crypto.randomUUID(), topic: node.topic, expanded: true, children: node.children.map(make) })
   const children = result.children.map(make)
   let first = children[0]

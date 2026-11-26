@@ -197,6 +197,30 @@ test('Groq mantiene zoom al escribir Enter y conserva conexiones al salir del re
   await expect(page.locator('#inspector')).toHaveClass('collapsed')
 })
 
+test('Groq conserva el pedido y el mapa si el modelo devuelve títulos repetidos', async ({ page }) => {
+  await aiSetup(page)
+  const before = await readFile(page)
+  const instruction = '¿Podés dar un ejemplo concreto?\nCon $P(A)$ y una explicación.'
+  await page.route('**/api/groq/branch', async route => {
+    const sent = route.request().postDataJSON()
+    expect(sent.instruction).toBe(instruction)
+    expect(sent.context.path.map((node: { topic: string }) => node.topic)).toEqual(['Tema', 'Estudio', '$P(A)$'])
+    await route.fulfill({ json: { children: [{ topic: '$P(A)$', children: [] }] } })
+  })
+  await page.keyboard.press('*'); await page.keyboard.type('x')
+  await page.locator('#ai-prompt').fill(instruction)
+  await expect(page.locator('#ai-target')).toHaveText('Ampliar: $P(A)$')
+  await expect(page.locator('#ai-target')).toHaveAttribute('title', 'Tema → Estudio → $P(A)$')
+  await page.keyboard.press('Control+Enter')
+  await expect(page.locator('#toast')).toContainText('repite')
+  await expect(page.locator('#ai-prompt')).toHaveValue(instruction)
+  await expect(page.locator('#walk-map .me-tpc')).toHaveCount(6)
+  expect(await readFile(page)).toEqual(before)
+  await page.keyboard.press('Escape')
+  await page.locator('#walk-map [data-nodeid="mebranch"]').click()
+  await expect(page.locator('#ai-target')).toHaveText('Ampliar: Estudio')
+})
+
 test('Groq configura credencial cifrada en biblioteca, permite desactivar y olvidar', async ({ page }) => {
   const apiKey = 'gsk_ui_test_1234567890'
   await aiSetup(page, false)

@@ -38,6 +38,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .composer-format button:hover { color: #111; background: #f4f4f5; }
 .composer-format svg { width: 16px; height: 16px; }
 #ai-composer[aria-busy=true] { cursor: progress; }
+#ai-target { font: 12px/18px Arial, sans-serif; color: #555; margin-bottom: 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .folder-card.library-selected, .map-card.library-selected { outline: 2px solid #4f74d9; outline-offset: 2px; background: #eef3ff; }
 #walk-node-editor { display: block; color: #111; background: #fff; font: 16px/1.4 Arial, sans-serif; resize: none; border: 0; padding: 5px; min-width: 0; max-width: 70vw; max-height: 50vh; }
 #groq-dialog { width: min(480px, calc(100vw - 32px)); }

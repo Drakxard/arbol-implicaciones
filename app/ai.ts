@@ -17,7 +17,16 @@ export function installAI(navigation: Navigation, snapshot: () => MindElixirData
     field.style.height = '0px'
     field.style.height = `${Math.min(100, Math.max(25, field.scrollHeight))}px`
   }
+  function updateTarget() {
+    if (!navigation.active) return
+    const context = navigation.context()
+    const label = document.getElementById('ai-target')!
+    label.textContent = `Ampliar: ${context.target.topic}`
+    label.title = context.path.map(node => node.topic).join(' → ')
+  }
+  host.addEventListener('walk-target-change', updateTarget)
   function open(text?: string) {
+    updateTarget()
     composer.hidden = false
     if (text !== undefined) field.value += text
     resize(); field.focus({ preventScroll: true }); field.setSelectionRange(field.value.length, field.value.length)
