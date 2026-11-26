@@ -136,9 +136,11 @@ async function loadDocument(data: MindElixirData) {
     settings = withTextDefaults(settingsFrom(data))
     mind.clearSelection()
     selectedId = ''
+    mind.direction = data.direction ?? 1
     await mind.refresh(data)
     mind.meta = data.meta
     mind.changeCompact(data.compact ?? false)
+    updateLayoutButtons()
     applyAppearance()
     mind.clearHistory?.()
     selectedId = ''
@@ -843,10 +845,10 @@ function drawLibrary() {
 }
 async function libraryAction(action: () => Promise<void>) {
   if (libraryBusy) return
-  libraryBusy = true; updateTransferBar()
+  libraryBusy = true; $('library').setAttribute('aria-busy', 'true'); updateTransferBar()
   try { await action() }
   catch (error) { $('library-error').textContent = error instanceof Error ? error.message : 'No se pudo abrir la biblioteca.'; $('library-error').hidden = false }
-  finally { libraryBusy = false; updateTransferBar() }
+  finally { libraryBusy = false; $('library').removeAttribute('aria-busy'); updateTransferBar() }
 }
 function showEditor() {
   $('library').hidden = true

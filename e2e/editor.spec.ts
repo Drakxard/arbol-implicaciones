@@ -188,6 +188,7 @@ test('Groq mantiene zoom al escribir Enter y conserva conexiones al salir del re
   }))
   expect(connections.length).toBeGreaterThan(0)
   for (const connection of connections) expect(connection.width).toBeGreaterThan(20)
+  await expect(page.locator('#editor')).toHaveAttribute('data-save-state', 'saved')
   const saved = await readFile(page)
   expect(saved.nodeData.children[0].children[0].children[0].topic).toBe('**Ejemplo**')
   expect(saved.nodeData.children[1]).toEqual(aiDocument.nodeData.children[1])
@@ -537,7 +538,9 @@ test('recorrido ilumina conexiones de ramas laterales y plegadas con cada estilo
   for (const style of ['straight', 'orthogonal', 'curve']) {
     await page.getByLabel('Estilo de rama').selectOption(style)
     await page.keyboard.press('Control+s')
+    await expect(page.locator('#editor')).toHaveAttribute('data-save-state', 'saved')
     const saved = await readFile(page)
+    expect(saved.direction).toBe(2)
     await page.locator('#walk-button').click()
     await expect(page.locator('#walk-map .me-tpc')).toHaveCount(7)
     for (let index = 0; index < expected.length; index++) {
@@ -581,6 +584,7 @@ test('recorrido de un único nodo respeta límites, repetición de asterisco y d
 async function createMap(page: Page) {
   await page.getByRole('button', { name: 'Crear nuevo', exact: true }).click()
   await page.getByRole('button', { name: 'Mapa', exact: true }).click()
+  await expect(page.locator('#library')).not.toHaveAttribute('aria-busy', 'true')
   await page.getByRole('button', { name: 'Expandir panel', exact: true }).click()
 }
 async function createFolder(page: Page, name: string) {
@@ -603,6 +607,7 @@ async function mapOptions(page: Page, topic: string, action: string) {
   await page.getByLabel(`Opciones de ${topic}`, { exact: true }).click()
   if (action === 'Mover a la papelera') page.once('dialog', dialog => dialog.accept())
   await page.getByRole('button', { name: action, exact: true }).click()
+  await expect(page.locator('#library')).not.toHaveAttribute('aria-busy', 'true')
 }
 async function renameRoot(page: Page, title: string) {
   await (await root(page)).click(); await page.keyboard.press('F2')
@@ -1054,6 +1059,7 @@ test('biblioteca, nombres de raíz, búsqueda, creación y papelera', async ({ p
   await page.getByRole('button', { name: 'Volver a la biblioteca' }).click()
   await expect(page.locator('.map-card')).toHaveCount(2)
   await page.getByLabel('Opciones de Mapa renombrado', { exact: true }).click()
+  page.once('dialog', dialog => dialog.accept())
   await page.getByRole('button', { name: 'Mover a la papelera' }).click()
   await expect(page.locator('.map-card')).toHaveCount(1)
   await page.getByRole('button', { name: 'Papelera de reciclaje' }).click()
@@ -1216,8 +1222,8 @@ test('configuración global, historial, ramas y panel contraíble', async ({ pag
   expect((await readFile(page)).meta.editor).toMatchObject({ theme: 'Oscuro', branchStyle: 'orthogonal', fontFamily: 'Georgia', source: 'Mi apunte' })
   await page.reload()
   await expect(page.getByLabel('Tema', { exact: true })).toHaveValue('Oscuro')
-  await expect(page.getByRole('switch', { name: 'Modo compacto' })).toBeChecked()
   await page.getByRole('button', { name: 'Expandir panel', exact: true }).click()
+  await expect(page.getByRole('switch', { name: 'Modo compacto' })).toBeChecked()
   await page.getByLabel('Tema', { exact: true }).selectOption('Latte')
   await page.getByRole('button', { name: 'Deshacer (Ctrl + Z)' }).click()
   await expect(page.getByLabel('Tema', { exact: true })).toHaveValue('Oscuro')
